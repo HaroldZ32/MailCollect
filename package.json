@@ -12,7 +12,8 @@
     "dev:desktop": "npm run dev -w @mailcollect/desktop",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "smoke": "node scripts/smoke.mjs"
   },
   "workspaces": [
     "apps/*",

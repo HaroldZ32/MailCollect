@@ -1,7 +1,5 @@
-import clsx from "clsx";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
-import type { ConnectionMode } from "../lib/useMailData";
 import { initials, hueFor } from "../lib/format";
 
 export type PageId = "inbox" | "tasks" | "timeline" | "settings";
@@ -19,30 +17,15 @@ const NAV: readonly NavEntry[] = [
   { id: "settings", label: "设置", icon: "settings" },
 ];
 
-const MODE_LABEL: Record<ConnectionMode, string> = {
-  loading: "连接中",
-  live: "已连接服务",
-  demo: "演示数据",
-  offline: "未连接",
-};
-
-const MODE_DOT: Record<ConnectionMode, string> = {
-  loading: "",
-  live: "",
-  demo: "is-demo",
-  offline: "is-offline",
-};
-
 export interface SidebarProps {
   readonly page: PageId;
   readonly candidateCount: number;
   readonly profileName: string;
   readonly profileMeta: string;
-  readonly mode: ConnectionMode;
   readonly onNavigate: (page: PageId) => void;
 }
 
-export function Sidebar({ page, candidateCount, profileName, profileMeta, mode, onNavigate }: SidebarProps) {
+export function Sidebar({ page, candidateCount, profileName, profileMeta, onNavigate }: SidebarProps) {
   const hue = hueFor(profileName);
   const avatarBackground = `linear-gradient(140deg, hsl(${hue + 6} 92% 70%), hsl(${hue} 80% 54%))`;
 
@@ -90,12 +73,7 @@ export function Sidebar({ page, candidateCount, profileName, profileMeta, mode, 
             <div className="profile-chip-name">{profileName}</div>
             <div className="profile-chip-meta">{profileMeta}</div>
           </div>
-        </div>
-        <div className="conn">
-          <span className={clsx("conn-dot", MODE_DOT[mode])} />
-          <span>{MODE_LABEL[mode]}</span>
-        </div>
-      </div>
+        </div>      </div>
     </aside>
   );
 }

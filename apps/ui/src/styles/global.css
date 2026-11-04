@@ -978,8 +978,9 @@ a {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 2px 2px 6px;
+  padding: 2px 2px 10px;
   overflow: auto;
+  mask-image: linear-gradient(180deg, #000 calc(100% - 16px), transparent 100%);
 }
 
 .mail-item {
@@ -1126,6 +1127,7 @@ a {
 }
 
 .mail-body {
+  max-width: 74ch;
   font-size: 13.5px;
   line-height: 1.8;
   color: var(--text-primary);
@@ -1708,44 +1710,47 @@ a {
   display: none;
 }
 
-.gantt_marker.mc-today-marker {
+.gantt-today-line {
+  position: absolute;
+  display: none;
   width: 0;
-  background: transparent;
   border-left: 1.5px dashed rgba(228, 112, 95, 0.75);
-  z-index: 5;
+  pointer-events: none;
+  z-index: 6;
 }
 
-.gantt_marker.mc-today-marker .gantt_marker_content {
-  top: 3px;
-  margin-left: 5px;
+.gantt-today-label {
+  position: absolute;
+  top: 6px;
+  left: 5px;
   padding: 1px 7px;
   border-radius: var(--radius-pill);
   background: var(--today);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1.5;
   white-space: nowrap;
   box-shadow: 0 3px 8px rgba(228, 112, 95, 0.3);
 }
 
-.mc-due {
+.gantt-overlay {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 0;
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
-  z-index: 4;
+  z-index: 6;
+}
+
+.gantt-due-pin {
+  position: absolute;
+  display: none;
+  width: 0;
+  border-left: 1.5px dashed rgba(228, 112, 95, 0.42);
   transform: translateX(-50%);
 }
 
-.mc-due-line {
-  flex: 1;
-  width: 0;
-  border-left: 1.5px dashed rgba(228, 112, 95, 0.42);
-}
-
-.mc-due-dot {
+.gantt-due-pin-dot {
   position: absolute;
   top: 50%;
   left: 0;

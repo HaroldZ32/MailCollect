@@ -20,3 +20,4 @@ coverage/
 .mpd/boulder.json
 .mpd/memory/
 .mpd/team/watchdog/
+evidence/**/*.png

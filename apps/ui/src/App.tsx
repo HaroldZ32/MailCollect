@@ -94,7 +94,6 @@ export function App() {
             ? "去设置页填写档案"
             : `${data.profile.timezone} · ${data.profile.emails[0] ?? "未填邮箱"}`
         }
-        mode={data.mode}
         onNavigate={setPage}
       />
 
@@ -118,8 +117,8 @@ export function App() {
           </div>
         </header>
 
-        <div className={clsx("page-scroll", page === "timeline" && "page-scroll--fixed")}>
-          <div className={clsx("page", page === "timeline" && "page--full")}>
+        <div className="page-scroll">
+          <div className="page">
             {page === "inbox" ? (
               <InboxPage
                 mode={data.mode}

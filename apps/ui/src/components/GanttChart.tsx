@@ -6,8 +6,10 @@ import { EmptyState } from "./EmptyState";
 import { Icon } from "./Icon";
 import { formatGanttDate } from "../lib/format";
 
-const DUE_LEAD_MS = 90 * 60 * 1000;
+const DUE_LEAD_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_WINDOW_MS = 2 * 60 * 60 * 1000;
+const QUARTER_MS = 15 * 60 * 1000;
+const ROW_HEIGHT = 46;
 const INITIAL_LEVEL = 1;
 
 const ZOOM_BUTTONS: readonly { readonly level: number; readonly label: string }[] = [
@@ -53,6 +55,10 @@ function toTimedTask(task: Task): TimedTask | null {
   }
 
   return null;
+}
+
+function roundToQuarter(date: Date): Date {
+  return new Date(Math.round(date.getTime() / QUARTER_MS) * QUARTER_MS);
 }
 
 function buildZoomLevels(): ZoomLevel[] {
@@ -126,13 +132,13 @@ function buildLinks(entries: readonly TimedTask[]): SerializedLink[] {
 function configureGantt(): void {
   gantt.config.date_format = "%Y-%m-%d %H:%i";
   gantt.config.readonly = false;
-  gantt.config.row_height = 46;
+  gantt.config.row_height = ROW_HEIGHT;
   gantt.config.bar_height = 24;
   gantt.config.grid_width = 318;
   gantt.config.min_column_width = 56;
   gantt.config.scale_height = 52;
   gantt.config.duration_unit = "hour";
-  gantt.config.round_dnd_dates = true;
+  gantt.config.round_dnd_dates = false;
   gantt.config.drag_move = true;
   gantt.config.drag_resize = true;
   gantt.config.drag_progress = false;
@@ -143,42 +149,20 @@ function configureGantt(): void {
   gantt.config.auto_types = false;
   gantt.config.columns = [
     { name: "text", label: "待办", width: 210, resize: true },
-    { name: "start_date", label: "开始", align: "center", width: 104 },
-    { name: "end_date", label: "截止", align: "center", width: 104 },
+    { name: "start_date", label: "开始", align: "center", width: 100 },
+    { name: "end_date", label: "结束", align: "center", width: 104 },
   ];
-  gantt.plugins({ marker: true });
-  gantt.templates.date_grid = (date) => formatGanttDate(date);
+  gantt.templates.date_grid = (date, task, column) => {
+    const entry = timedIndex.get(String(task.id));
+    if (entry === undefined || !entry.dueOnly) return formatGanttDate(date);
+    return column === "start_date" ? "—" : formatGanttDate(date);
+  };
   gantt.templates.task_class = (start, end, task) => {
     const entry = timedIndex.get(String(task.id));
     if (entry === undefined) return "";
     return entry.dueOnly ? "mc-bar mc-bar--due" : "mc-bar mc-bar--window";
   };
-  gantt.templates.task_text = (start, end, task) => {
-    const entry = timedIndex.get(String(task.id));
-    if (entry === undefined || entry.dueOnly) return "";
-    return task.text ?? "";
-  };
-}
-
-function renderDueLayer(task: GanttTask): HTMLElement | boolean {
-  const entry = timedIndex.get(String(task.id));
-  const dueAt = entry?.task.time?.dueAt ?? null;
-  if (entry === undefined || dueAt === null) return false;
-
-  const due = new Date(dueAt);
-  const position: BarPosition = gantt.getTaskPosition(task, due);
-  const wrapper = document.createElement("div");
-  wrapper.className = "mc-due";
-  wrapper.style.left = `${position.left}px`;
-  wrapper.style.top = `${position.top}px`;
-  wrapper.style.height = `${position.height}px`;
-
-  const line = document.createElement("span");
-  line.className = "mc-due-line";
-  const dot = document.createElement("span");
-  dot.className = "mc-due-dot";
-  wrapper.append(line, dot);
-  return wrapper;
+  gantt.templates.task_text = () => "";
 }
 
 export interface GanttChartProps {
@@ -192,6 +176,8 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
   const initializedRef = useRef(false);
   const levelRef = useRef(INITIAL_LEVEL);
   const onTimeChangeRef = useRef(onTaskTimeChange);
+  const todayLineRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   const timed = useMemo(() => {
     const entries: TimedTask[] = [];
@@ -233,6 +219,63 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
     gantt.scrollTo(scroll.x, scroll.y);
   }, []);
 
+  const updateTodayLine = useCallback(() => {
+    const canvas = hostElement;
+    const line = todayLineRef.current;
+    if (canvas === null || line === null) return;
+
+    const dataArea = canvas.querySelector<HTMLElement>(".gantt_data_area");
+    const taskArea = canvas.querySelector<HTMLElement>(".gantt_task");
+    if (dataArea === null || taskArea === null) {
+      line.style.display = "none";
+      return;
+    }
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const dataRect = dataArea.getBoundingClientRect();
+    const taskRect = taskArea.getBoundingClientRect();
+    const scale = canvas.querySelector<HTMLElement>(".gantt_task_scale");
+    const scaleRect = scale === null ? null : scale.getBoundingClientRect();
+
+    const left = dataRect.left - canvasRect.left + gantt.posFromDate(new Date());
+    const timelineLeft = taskRect.left - canvasRect.left;
+    const timelineRight = taskRect.right - canvasRect.left;
+    const visible = left >= timelineLeft && left <= timelineRight;
+    line.style.display = visible ? "block" : "none";
+    if (!visible) return;
+
+    const top = (scaleRect === null ? taskRect.top : scaleRect.bottom) - canvasRect.top;
+    line.style.left = `${Math.round(left)}px`;
+    line.style.top = `${Math.max(0, Math.round(top))}px`;
+    line.style.height = `${Math.max(0, Math.round(canvasRect.height - top))}px`;
+
+    const overlay = overlayRef.current;
+    if (overlay === null) return;
+    const pins = overlay.querySelectorAll<HTMLElement>("[data-due-id]");
+    for (const pin of pins) {
+      const id = pin.dataset["dueId"];
+      if (id === undefined || !gantt.isTaskExists(id)) {
+        pin.style.display = "none";
+        continue;
+      }
+      const entry = timedIndex.get(id);
+      const dueAt = entry?.task.time?.dueAt ?? null;
+      if (entry === undefined || dueAt === null) {
+        pin.style.display = "none";
+        continue;
+      }
+      const position: BarPosition = gantt.getTaskPosition(gantt.getTask(id), new Date(dueAt));
+      const pinLeft = dataRect.left - canvasRect.left + position.left;
+      const pinTop = dataRect.top - canvasRect.top + position.top;
+      const pinVisible = pinLeft >= timelineLeft && pinLeft <= timelineRight;
+      pin.style.display = pinVisible ? "block" : "none";
+      if (!pinVisible) continue;
+      pin.style.left = `${Math.round(pinLeft)}px`;
+      pin.style.top = `${Math.round(pinTop)}px`;
+      pin.style.height = `${Math.round(position.height)}px`;
+    }
+  }, [hostElement]);
+
   useEffect(() => {
     if (hostElement === null) return;
 
@@ -240,9 +283,8 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
     gantt.init(hostElement);
     gantt.ext.zoom.init({ levels: buildZoomLevels(), activeLevelIndex: levelRef.current });
     gantt.ext.zoom.setLevel(levelRef.current);
-    gantt.addMarker({ id: "today-marker", start_date: new Date(), css: "mc-today-marker", text: "今天" });
-    gantt.addTaskLayer(renderDueLayer);
     gantt.attachEvent("onTaskDblClick", () => false);
+    const scrollHandler = gantt.attachEvent("onGanttScroll", () => updateTodayLine());
 
     const dragHandler = gantt.attachEvent("onAfterTaskDrag", (id) => {
       const entry = timedIndex.get(String(id));
@@ -252,9 +294,15 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
       const end = moved.end_date;
       if (start === undefined || end === undefined) return;
 
+      const roundedStart = roundToQuarter(start);
+      const roundedEnd = roundToQuarter(end);
+      const safeEnd =
+        roundedEnd.getTime() <= roundedStart.getTime()
+          ? new Date(roundedStart.getTime() + 60 * 60 * 1000)
+          : roundedEnd;
       const patch: UpdateTaskInput = entry.dueOnly
-        ? { dueAt: end.toISOString(), windowStart: null, windowEnd: null }
-        : { windowStart: start.toISOString(), windowEnd: end.toISOString(), dueAt: null };
+        ? { dueAt: safeEnd.toISOString(), windowStart: null, windowEnd: null }
+        : { windowStart: roundedStart.toISOString(), windowEnd: safeEnd.toISOString(), dueAt: null };
 
       void Promise.resolve(onTimeChangeRef.current(entry.task.id, patch)).then(
         (ok) => {
@@ -267,9 +315,11 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
     initializedRef.current = true;
     syncData();
     gantt.showDate(new Date());
+    window.requestAnimationFrame(() => updateTodayLine());
 
     const resizeObserver = new ResizeObserver(() => {
       gantt.setSizes();
+      updateTodayLine();
     });
     resizeObserver.observe(hostElement);
 
@@ -277,23 +327,31 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
       initializedRef.current = false;
       resizeObserver.disconnect();
       gantt.detachEvent(dragHandler);
+      gantt.detachEvent(scrollHandler);
       gantt.destructor();
     };
-  }, [hostElement, syncData]);
+  }, [hostElement, syncData, updateTodayLine]);
 
   useEffect(() => {
     if (!initializedRef.current) return;
     syncData();
-  }, [timed, syncData]);
+    window.requestAnimationFrame(() => updateTodayLine());
+  }, [timed, syncData, updateTodayLine]);
+
+  const chartHeight = Math.min(720, Math.max(300, timed.length * ROW_HEIGHT + 72));
 
   const applyLevel = (next: number): void => {
     levelRef.current = next;
     setLevel(next);
-    if (initializedRef.current) gantt.ext.zoom.setLevel(next);
+    if (!initializedRef.current) return;
+    gantt.ext.zoom.setLevel(next);
+    window.requestAnimationFrame(() => updateTodayLine());
   };
 
   const jumpToToday = (): void => {
-    if (initializedRef.current) gantt.showDate(new Date());
+    if (!initializedRef.current) return;
+    gantt.showDate(new Date());
+    window.requestAnimationFrame(() => updateTodayLine());
   };
 
   return (
@@ -343,8 +401,20 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
           text="待办里的「时段」或「到期」任务会出现在这里：拖拽改期、拖动右侧手柄改时长，到期任务显示为一个可拖动的到期点。"
         />
       ) : (
-        <div className="gantt-host">
+        <div className="gantt-host" style={{ height: `${chartHeight}px` }}>
           <div className="gantt-canvas" ref={setHostElement} />
+          <div className="gantt-overlay" ref={overlayRef} aria-hidden="true">
+            <div className="gantt-today-line" ref={todayLineRef}>
+              <span className="gantt-today-label">今天</span>
+            </div>
+            {timed.map((entry) =>
+              entry.task.time?.dueAt === null || entry.task.time?.dueAt === undefined ? null : (
+                <div className="gantt-due-pin" data-due-id={entry.task.id} key={`due-${entry.task.id}`}>
+                  <span className="gantt-due-pin-dot" />
+                </div>
+              ),
+            )}
+          </div>
         </div>
       )}
 

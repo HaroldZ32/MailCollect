@@ -75,6 +75,9 @@ function failureText(error: unknown): string {
     if (error.code === "network") return "本地服务不可达：请启动 apps/server，或继续使用演示数据。";
     return error.message;
   }
+  if (error instanceof SyntaxError) {
+    return "本地服务返回了非 API 响应：请确认 /api 反向代理指向 apps/server。";
+  }
   if (error instanceof Error) return error.message;
   return "发生未知错误";
 }
@@ -185,7 +188,9 @@ export function useMailData(): MailData {
       applyLiveData(await fetchLiveData());
       setMode("live");
     } catch (caught) {
-      if (!injected && isApiError(caught) && caught.code === "network") {
+      // 未注入运行时（纯浏览器）时，健康检查失败一律回落到演示数据；注入运行时则报连接错误。
+      const unauthorized = isApiError(caught) && caught.code === "unauthorized";
+      if (!injected && !unauthorized) {
         loadDemo();
         return;
       }

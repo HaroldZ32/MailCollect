@@ -59,11 +59,23 @@ is the source of truth: `package-lock.json` is authoritative.
 
 ## 6. Git discipline
 
-- Work on a branch, never directly on the main branch.
-- Use a commit format such as `<type>(<scope>): <summary>`.
-- Open a pull request describing what changed, the evidence, the checks run and any
-  unverified bound.
-- One writer per working tree; never rewrite published history.
+Remote: <https://github.com/HaroldZ32/MailCollect> · identity `HaroldZ32
+<zyn779735281@hotmail.com>` (set repo-locally, not globally).
+
+Classic git-flow branch model:
+
+| 分支 | 从哪来 | 合到哪 | 用途 |
+|---|---|---|---|
+| `main` | — | — | 每个提交都可发布；只接受 `release/*` 与 `hotfix/*` 的合并，并打 `vX.Y.Z` 标签 |
+| `dev` | `main` | — | 日常集成分支，功能在这里汇合 |
+| `feature/<slug>` | `dev` | `dev` | 单个功能；合完即删 |
+| `release/<version>` | `dev` | `main`（打标签）+ 回流 `dev` | 只允许修 bug，不加功能；合完即删 |
+| `hotfix/<slug>` | `main` | `main`（打标签）+ 回流 `dev` | 线上紧急修复 |
+
+- 绝不直接往 `main` 提交；开发默认停在 `dev`。
+- 提交信息用 `<type>(<scope>): <summary>`，正文写清证据与被验证的边界。
+- 开 PR 时描述：改了什么、证据、跑过的检查、还没验证的部分。
+- 一个工作树只能有一个写入者；已推送的历史永不重写。
 
 ## 7. Architecture invariants
 

@@ -123,9 +123,7 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
     () =>
       tasks.filter(
         (task) =>
-          task.status === "candidate" &&
-          task.origin !== "broadcast" &&
-          (task.owner === "me" || task.owner === "unassigned"),
+          task.status === "candidate" && task.origin !== "broadcast" && task.owner !== "other",
       ),
     [tasks],
   );

@@ -5,7 +5,7 @@
   "description": "MailCollect MVP：AI 邮件待办抽取 + 群发分流 + 甘特图，桌面优先、单代码库全端。按 docs/requirements.md 与 .mpd/plans/001-mvp.md 的冻结契约并行开发。",
   "leadSessionId": "ea23238e-df2c-48a4-b9da-5b1f9e465aad",
   "planId": "plan-20261104023149519-82ss-001",
-  "phase": "active",
+  "phase": "idle",
   "createdAt": "2026-11-04T02:37:32.630Z",
   "members": [
     {
@@ -43,7 +43,7 @@
       "id": "M4",
       "name": "verifier",
       "description": "Reviewer — 验证泳道：只读代码、对照冻结契约与需求出 PASS/FAIL 结论",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -192,18 +192,39 @@
       "subject": "复审：6 项 High 的关闭情况",
       "description": "复审 T4 的 6 项 High 是否真的关闭，并检查返修本身没有引入新问题。只读，不修。\n\n逐条核（你 T4 报告里的编号）：\n1. 群发基数量：broadcast.ts 是否真的改成 To+Cc，To=1+Cc=200 是否不再判 personal（自己重跑那个探针）。\n2. R3 owner→status：extract.ts 的 deriveStatus 是否实现了 me+personal→confirmed、其余 candidate；server 持久化路径是否真的用了它。\n3. /api/sync/changes：真服务端返回是否已是 camelCase（entityId/deviceId），冻结的 ChangeLogRow 是否恢复可用。\n4. broadcast_decision：是否已被真实套用（main.ts 的抽取循环），always_ignore→dismissed、always_task→confirmed。\n5. UI Anthropic 预设：是否已是 openai-compatible + 兼容层 baseURL；原生协议是否不可选。\n6. Graph 设备码：仍是已知缺口即可，不要求本轮修，但请确认没有被误报为已修。\n\n另查：\n- 返修有没有改冻结文件（domain.ts / extraction.ts / port.ts / mail/types.ts / schema.sql 应只增量）\n- 新增的 listId 字段是否与 normalizeListId 规则一致\n- UI 的 owner=other 过滤是否真的不渲染可操作卡片\n\n输出：每条 High 给 CLOSED / STILL-OPEN / PARTIAL + 证据（文件:符号 或 命令输出）；最后给总判定（approve / request changes）。若仍 request changes，只列 Blocker/High，不要重列 Medium。",
       "kind": "review",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [],
       "writeScopes": [],
       "createdAt": "2026-11-04T03:31:55.912Z",
-      "updatedAt": "2026-11-04T03:32:00.936Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T03:38:08.563Z",
+      "revision": 4,
       "owner": "6ed56b36-6042-4b5a-b956-c9b348ce4df7",
       "startedAt": "2026-11-04T03:31:57.964Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "6 项 High 复审完成（快照 e69deae，源码与 adc5752 一致，工作树干净）。门禁：typecheck 0、155 测试全过（core 138 + server 17）、build 0、smoke 8/8。逐条：H1 CLOSED（probe To=1+Cc=200→broadcast recipients:>=10）；H2 CLOSED（deriveStatus me+personal→confirmed、其余 candidate；真服务端 E2E confirmed；UI other 不渲染不可操作）；H3 CLOSED（真服务端 /api/sync/changes 返回 entityId/deviceId）；H4 CLOSED（真服务端 E2E：always_ignore→dismissed、always_task→confirmed）；H5 CLOSED（Claude 预设 openai-compatible + Anthropic baseUrl，原生协议 disabled）；H6 CLOSED 作为已知缺口（mail/** 未改、工厂仍单参、无 login 路由、计划文档诚实记录，未误报已修）。冻结文件自 95143e1 未改；listId 规则对正常值一致、live 路径用服务端值；UI owner=other 过滤真实生效。总判定 approve（0 Blocker / 0 High）。非阻塞建议：owner=everyone 的非群发候选在 UI 被隐藏但仍计入统计（Medium，新增）；body-hash 仍未进生产逐封路径（Medium，计划已记录）；main.ts 决策接线无仓内自动化测试（Medium 覆盖）；bulk 入站 listId 未归一化（Low）；UI 本地 listIdOf 对畸形值弱于服务端（Low）。",
+      "finishedAt": "2026-11-04T03:38:08.563Z"
+    },
+    {
+      "id": "T9",
+      "subject": "返修：owner=everyone 的候选应可见可操作（只有 other 才不打扰）",
+      "description": "复审（T8）发现的唯一功能性 Medium，直接对应需求 R4（「群发所有人都需要的给用户提醒让用户决定是否要做」）。范围仅 apps/ui/**。\n\n问题：`owner=\"everyone\"` 且 origin 非 broadcast 的 candidate 任务被 candidates 过滤藏起来了，但 deriveCounts 仍计入统计 → 侧栏徒标与页面卡片数不一致，且这类任务在 UI 完全不可见。\n\n期望语义（按 R4）：owner=everyone 意味着「所有人都要做，包括我」，应该可见且可操作（加入待办/忽略）；只有 owner=other 才是「别人的事，不打扰」。\n\n要求：\n1. TasksPage 的候选过滤、群发卡、已确认/已完成、GanttChart、deriveCounts 统一改为 `owner !== \"other\"`，把 everyone 重新纳入可见集合。\n2. 确认统计与卡片数量一致（改完自己用 Playwright 注入一条 owner=everyone 的 candidate + 一条 owner=other 的 candidate 验证：前者可见且计数 +1，后者不可见且计数不变）。\n\n验收：pnpm --filter @mailcollect/ui exec tsc --noEmit 与 build 均 exit 0，贴原始输出 + 注入验证结果。",
+      "kind": "repair",
+      "status": "completed",
+      "blockedBy": [],
+      "writeScopes": [
+        "apps/ui/"
+      ],
+      "createdAt": "2026-11-04T03:40:19.841Z",
+      "updatedAt": "2026-11-04T03:42:14.591Z",
+      "revision": 4,
+      "owner": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+      "startedAt": "2026-11-04T03:40:22.805Z",
+      "attempt": 1,
+      "note": "候选过滤统一为 owner !== \"other\"，everyone 候选恢复可见可操作（统计/侧栏徽标/分区计数一致）；other 仍不打扰。审计全链路 owner 判断统一。tsc/build exit 0；注入验证 18/18 PASS（everyone 可见+计数+1+可加入，other 不可见+计数不变，时间线 everyone 显示/other 隐藏）；T7 21/21 与演示回归全 PASS。",
+      "finishedAt": "2026-11-04T03:42:14.591Z"
     }
   ],
   "nextMemberNumber": 5,
-  "nextTaskNumber": 9,
+  "nextTaskNumber": 10,
   "approvedAt": "2026-11-04T02:37:32.961Z"
 }

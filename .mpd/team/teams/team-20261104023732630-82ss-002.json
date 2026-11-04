@@ -33,7 +33,7 @@
       "id": "M3",
       "name": "ui-engineer",
       "description": "Senior Engineer — 界面泳道：圆角毛玻璃浅蓝设计系统 + 收件箱/待办/甘特/设置",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -133,17 +133,19 @@
       "subject": "SSE 实时更新：订阅 task/extract/sync/error 事件并断线重连",
       "description": "服务端已允许 /api/events 用 query 令牌（其他路由仍只认 Authorization 头）。\n\n交付：\n1. api.ts 暴露 eventsUrl(token)\n2. 数据层用 EventSource 订阅 task / extract / sync / error 四类事件并就地更新状态\n3. 指数退避重连（1s/2s/4s…上限 30s），重连后补拉 /api/tasks 与 /api/emails\n4. 组件卸载时 close；无令牌/演示模式不建连接\n5. 令牌不进 console、不进 UI 文案\n\n验收：pnpm --filter @mailcollect/ui exec tsc --noEmit 与 build 均 exit 0。",
       "kind": "work",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [],
       "writeScopes": [
         "apps/ui/"
       ],
       "createdAt": "2026-11-04T03:13:04.210Z",
-      "updatedAt": "2026-11-04T03:13:53.588Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T03:18:10.394Z",
+      "revision": 4,
       "owner": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
       "startedAt": "2026-11-04T03:13:17.737Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "SSE 已接入：eventsUrl + EventSource 订阅 task/extract/sync/error，就地 upsert 与进度胶囊、可关闭错误条、1s→30s 指数退避重连、重连补拉 tasks/emails、卸载 close、demo 不建连；tsc/build exit 0，Playwright+桩服务 17/17 PASS，令牌未进 console/UI。",
+      "finishedAt": "2026-11-04T03:18:10.394Z"
     }
   ],
   "nextMemberNumber": 5,

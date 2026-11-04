@@ -1,14 +1,16 @@
 node_modules/
 .pnpm-store/
 .cache/
+.home/
+.data/
 dist/
 dist-electron/
+apps/desktop/ui/
 release/
 *.log
 .env
 .env.*
 !.env.example
-data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
@@ -16,3 +18,5 @@ data/
 .vite/
 coverage/
 .mpd/boulder.json
+.mpd/memory/
+.mpd/team/watchdog/

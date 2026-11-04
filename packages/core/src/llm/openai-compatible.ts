@@ -61,7 +61,7 @@ export function createOpenAiCompatiblePort(
     system: string,
     prompt: string,
     callerSignal: AbortSignal | undefined,
-  ): Promise<{ text: string; usage: LlmUsage | null }> {
+  ): Promise<{ text: string; usage: LlmUsage }> {
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout;
     const result = await generateText({

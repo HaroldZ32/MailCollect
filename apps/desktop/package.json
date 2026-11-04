@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:main": "node scripts/build-main.mjs",
+    "build:web": "node scripts/build-prod.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -15,5 +16,35 @@
     "electron-builder": "^26.18.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "com.mailcollect.app",
+    "productName": "MailCollect",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "ui/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
   }
 }

@@ -238,7 +238,9 @@ export function createApp(options: AppOptions): Hono {
     const status = input.decision === "confirm" ? "confirmed" : "dismissed";
     const updated = store.setTasksStatus(input.ids ?? [], status);
     if (input.listId) {
-      store.setBroadcastDecision(input.listId, input.decision === "confirm" ? "always_task" : "always_ignore");
+      // Normalise here too: the UI may echo a raw header value from an older build.
+      const listId = normalizeListId(input.listId) ?? input.listId;
+      store.setBroadcastDecision(listId, input.decision === "confirm" ? "always_task" : "always_ignore");
     }
     for (const task of updated) emit({ type: "task", data: task });
     return c.json({ items: updated });

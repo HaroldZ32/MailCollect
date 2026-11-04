@@ -6,7 +6,7 @@ import type { LlmConfig, ServerEvent, Task } from "@mailcollect/shared";
 import { openStore } from "@mailcollect/core";
 import { createMailSource } from "@mailcollect/core/mail";
 import { createLlmPort } from "@mailcollect/core/llm";
-import { processEmail, type PipelineDeps } from "@mailcollect/core/pipeline";
+import { processEmails, type PipelineDeps } from "@mailcollect/core/pipeline";
 import { createApp } from "./app.js";
 import { normalizeListId } from "./list-id.js";
 import type { ServerServices } from "./services.js";
@@ -136,44 +136,36 @@ const services: ServerServices = {
     const deps: PipelineDeps = { llm: createLlmPort(llm.config, llm.apiKey), profile };
     const pending = store.emailsPendingExtraction(50);
     const total = pending.length;
-    let done = 0;
+    if (total === 0) return { done: 0, total: 0 };
 
-    for (const email of pending) {
-      try {
-        const { verdict, tasks } = await processEmail(deps, email);
-        store.setBroadcastVerdict(email.id, verdict);
+    // Batch, not one-by-one: the "same body, same day" broadcast signal (R4)
+    // needs the whole set in view. A per-email loop can never see it.
+    const { verdicts, tasks, skipped } = await processEmails(deps, pending);
 
-        // A remembered "always a task / always noise" decision for this mailing
-        // list overrides the default candidate status. Without this the
-        // broadcast_decision table would be write-only (a real defect).
-        const listId = normalizeListId(email.headers["list-id"]);
-        const decision = listId ? store.getBroadcastDecision(listId) : null;
-        const routed: Task[] = decision
-          ? tasks.map((task) => ({
-              ...task,
-              status: decision === "always_task" ? "confirmed" : "dismissed",
-            }))
-          : tasks;
-
-        const inserted = store.insertTasks(routed);
-        for (const task of inserted) emit({ type: "task", data: task });
-        store.markExtracted(email.id, null);
-      } catch (error) {
-        // Leave it unextracted so the next run retries; record why for the UI.
-        emit({
-          type: "error",
-          data: {
-            message: `抽取失败（${email.subject.slice(0, 40)}）：${
-              error instanceof Error ? error.message : "未知错误"
-            }`,
-          },
-        });
-      }
-      done += 1;
-      emit({ type: "extract", data: { done, total } });
+    for (const [emailId, verdict] of verdicts) {
+      store.setBroadcastVerdict(emailId, verdict);
     }
 
-    return { done, total };
+    const byId = new Map(pending.map((email) => [email.id, email]));
+    const routed: Task[] = tasks.map((task) => {
+      const email = byId.get(task.sourceEmailId);
+      const listId = email ? normalizeListId(email.headers["list-id"]) : null;
+      const decision = listId ? store.getBroadcastDecision(listId) : null;
+      if (!decision) return task;
+      return { ...task, status: decision === "always_task" ? "confirmed" : "dismissed" };
+    });
+
+    const inserted = store.insertTasks(routed);
+    for (const task of inserted) emit({ type: "task", data: task });
+
+    const skippedIds = new Set(skipped.map((item) => item.emailId));
+    for (const email of pending) {
+      // Skipped messages are marked too, otherwise they would clog the queue head.
+      store.markExtracted(email.id, skippedIds.has(email.id) ? "skipped" : null);
+    }
+
+    emit({ type: "extract", data: { done: total, total } });
+    return { done: total, total };
   },
 
   async testLlm(input) {

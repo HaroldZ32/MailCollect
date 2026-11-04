@@ -159,6 +159,32 @@ export async function processEmail(
   };
 }
 
+/**
+ * Batch entry point — same per-email semantics as {@link processEmail}, but the
+ * whole set reaches `extractTasks` at once.
+ *
+ * This is not a convenience wrapper: it is the ONLY way the "same body, same
+ * day" broadcast signal can fire. `processEmail` sees one message, so its
+ * `duplicateBodyCount` is always 0 and R4's body-hash rule never triggers in
+ * production. Callers that own a queue must use this.
+ */
+export async function processEmails(
+  deps: PipelineDeps,
+  emails: readonly RawEmail[],
+): Promise<{
+  verdicts: Map<string, BroadcastVerdict>;
+  tasks: Task[];
+  skipped: ExtractOutcome["skipped"];
+}> {
+  const outcome = await extractTasks(emails, deps);
+  const now = new Date().toISOString();
+  return {
+    verdicts: outcome.verdicts,
+    tasks: outcome.tasks.map((task) => toTask(task, deps.profile, now)),
+    skipped: outcome.skipped,
+  };
+}
+
 export function groupByThread(emails: readonly RawEmail[]): RawEmail[][] {
   const groups = new Map<string, RawEmail[]>();
   for (const email of emails) {

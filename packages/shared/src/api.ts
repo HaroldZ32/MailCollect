@@ -198,4 +198,19 @@ export type ServerEvent =
   | { type: "task"; data: Task }
   | { type: "email"; data: { id: string; accountId: string; subject: string } }
   | { type: "extract"; data: { done: number; total: number } }
-  | { type: "error"; data: { message: string } };
+  | { type: "error"; data: { message: string } }
+  /** Microsoft Graph device-code login: show this to the user, then wait. */
+  | {
+      type: "device-code";
+      data: {
+        accountId: string;
+        userCode: string;
+        verificationUri: string;
+        message: string;
+        expiresInSeconds: number;
+      };
+    }
+  | {
+      type: "device-login";
+      data: { accountId: string; ok: boolean; detail: string };
+    };

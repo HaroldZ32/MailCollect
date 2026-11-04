@@ -190,6 +190,13 @@ describe("store", () => {
     const tail = store.changes(head - 1);
     expect(tail).toHaveLength(1);
     expect(tail[0]?.entity).toBe("raw_email");
+
+    // The sync seam must speak the frozen camelCase contract, not DB column names.
+    const first = all[0];
+    expect(first?.deviceId).toBe("device-a");
+    expect(first?.entityId).toBeTruthy();
+    expect(Object.keys(first ?? {})).not.toContain("entity_id");
+    expect(Object.keys(first ?? {})).not.toContain("device_id");
   });
 
   it("stores LLM configs with an encrypted key and one default", () => {

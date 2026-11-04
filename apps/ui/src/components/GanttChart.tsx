@@ -34,7 +34,7 @@ interface BarPosition {
 const timedIndex = new Map<string, TimedTask>();
 
 function toTimedTask(task: Task): TimedTask | null {
-  if (task.status !== "confirmed") return null;
+  if (task.status !== "confirmed" || task.owner === "other") return null;
   const time = task.time;
   if (time === null) return null;
 

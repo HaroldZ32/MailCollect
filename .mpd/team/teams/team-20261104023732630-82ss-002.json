@@ -23,7 +23,7 @@
       "id": "M2",
       "name": "pipeline-engineer",
       "description": "Senior Engineer — 抽取流水线泳道：多 LLM 端口 / 剥引文 / 群发判定 / 时间解析",
-      "status": "inactive",
+      "status": "running",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -33,7 +33,7 @@
       "id": "M3",
       "name": "ui-engineer",
       "description": "Senior Engineer — 界面泳道：圆角毛玻璃浅蓝设计系统 + 收件箱/待办/甘特/设置",
-      "status": "inactive",
+      "status": "running",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -43,7 +43,7 @@
       "id": "M4",
       "name": "verifier",
       "description": "Reviewer — 验证泳道：只读代码、对照冻结契约与需求出 PASS/FAIL 结论",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -114,7 +114,7 @@
       "subject": "验证：三泳道对照冻结契约的 PASS/FAIL 结论",
       "description": "三个泳道交付后，对照冻结契约与 docs/requirements.md 第5节逐条验收。\n\n必查：\n1. 冻结接口没有被静默改窄（MailSource / LlmPort / domain 类型）\n2. 空响应 → blank_response，不得当成 noTasks\n3. 时间不由模型计算；chrono-node 的 referenceDate 取邮件 Date 头\n4. 群发判定在调 LLM 之前完成\n5. secret 不进日志/返回值/异常\n6. UIDVALIDITY 变化时游标正确重置\n7. 测试不是假测；无改测试求通过\n8. UI 不泄漏 token；只调 api.ts 接口\n\n结论格式：泳道 / PASS或FAIL / Blocker 数 / High 数，附 declined 列表。",
       "kind": "review",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [
         "T1",
         "T2",
@@ -122,11 +122,13 @@
       ],
       "writeScopes": [],
       "createdAt": "2026-11-04T02:42:10.732Z",
-      "updatedAt": "2026-11-04T03:12:42.493Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T03:25:18.731Z",
+      "revision": 4,
       "owner": "6ed56b36-6042-4b5a-b956-c9b348ce4df7",
       "startedAt": "2026-11-04T03:12:29.914Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "三泳道对照冻结契约完成：快照 95143e1，门禁全绿（npm 3/3、pnpm 2/2、smoke 8/8）。Mail PASS(0B/1H，Graph 缺口计划已披露)；Pipeline FAIL(0B/1H：广播基数量漏 Cc，实测 To=1+Cc=200→personal)；UI FAIL(0B/1H：Anthropic 预设 anthropic-messages 后端必抛错)；跨泳道 FAIL(0B/3H：sync/changes 返回下划线字段、R3 owner 状态映射缺失、List-Id 决定写入后从不应用)。另有 Medium：hashBody/evidenceVerified 未接线、Graph sentAt 非 Date 头、UIDVALIDITY 重置重复入库、lastSyncAt 恒 null、change_log 不完整、IDLE 未接入、LLM 错误体未 redact、UI 值导入 shared 致 zod 进包。总判定 request changes，风险中高。详见发给 Lead 的报告。",
+      "finishedAt": "2026-11-04T03:25:18.731Z"
     },
     {
       "id": "T5",
@@ -146,9 +148,43 @@
       "attempt": 1,
       "note": "SSE 已接入：eventsUrl + EventSource 订阅 task/extract/sync/error，就地 upsert 与进度胶囊、可关闭错误条、1s→30s 指数退避重连、重连补拉 tasks/emails、卸载 close、demo 不建连；tsc/build exit 0，Playwright+桩服务 17/17 PASS，令牌未进 console/UI。",
       "finishedAt": "2026-11-04T03:18:10.394Z"
+    },
+    {
+      "id": "T6",
+      "subject": "返修：群发基数量计入 Cc + owner→status 映射",
+      "description": "验证方（T4）对照冻结契约判定 Pipeline 泳道 FAIL，两个 High 必须修。范围仅 packages/core/src/pipeline/**。\n\n【H1】broadcast 基数量漏算 Cc（R4 明写「To/Cc 基数」）\n现状：judgeBroadcast 只用 to.length。实测 To=1 + Cc=200 → {kind:\"personal\"}。\n要求：基数量改为 to.length + cc.length；用户仅在 Cc 不在 To 时继续加权；补一条回归测试（To=1+Cc=200 必须不是 personal）。\n\n【H2】R3 的 owner → status 映射缺失\n现状：extract.ts 的 toTask 一律 status=\"candidate\"；domain.ts 注释写「Only `me` becomes a TODO automatically」；实测 listTasks 返回 owner:\"other\" 且 UI 能「加入待办」。\n要求：toTask 里按规则映射：\n  owner===\"me\" 且 verdict.kind===\"personal\"  → status=\"confirmed\"\n  其他一律 status=\"candidate\"（包括 me+broadcast：R4 要用户自己决定）\n补测试：点名任务→confirmed；群发（即使 owner=me）→candidate；owner=other→candidate。\n\n【顺手】hashBody 已实现但判定从不调用——若能用它做「同日多条正文哈希相同 → 降级为 broadcast」并在 signals 里记 body-hash，就一并做；做不了就写进报告说明原因。\n\n验收：pnpm --filter @mailcollect/core exec tsc --noEmit 与 test 均 exit 0，贴原始输出。不得修改冻结文件（types.ts / domain.ts / extraction.ts / port.ts）。",
+      "kind": "repair",
+      "status": "in_progress",
+      "blockedBy": [],
+      "writeScopes": [
+        "packages/core/src/pipeline/"
+      ],
+      "createdAt": "2026-11-04T03:26:19.315Z",
+      "updatedAt": "2026-11-04T03:27:02.436Z",
+      "revision": 3,
+      "owner": "96029026-4892-41b7-bba1-06bd613ccd62",
+      "startedAt": "2026-11-04T03:26:25.683Z",
+      "attempt": 1
+    },
+    {
+      "id": "T7",
+      "subject": "返修：Anthropic 预设协议 + owner=other 不当作我的待办",
+      "description": "验证方（T4）判定 UI 泳道 FAIL，两个 High 必须修。范围仅 apps/ui/**。\n\n【H5】Anthropic 预设选了后端必抛错的协议\n现状：SettingsPage.tsx 的 LLM_PRESETS 里 anthropic 条目 protocol=\"anthropic-messages\"（还标成「官方兼容层」），而 core/llm/index.ts 的 createLlmPort 对该协议直接抛 LlmError → 用户选中即不可用。core 的 PROVIDER_PRESETS 里其实有正确形态。\n要求：改成 protocol=\"openai-compatible\"，baseUrl=https://api.anthropic.com/v1，label 写明「Claude（OpenAI 兼容层）」。检查其余预设也都用 openai-compatible。\n\n【H2·UI 侧】owner=other 的条目不能被当成我的待办\n现状：TasksPage 的 candidates 只滤 status/origin；TaskCard 给 owner=\"other\" 的条目也渲染「加入待办」。\n要求：待确认区只列 owner ∈ {me, unassigned}；owner=other 的不要出现在可操作卡片里（可以完全不显，或单独折叠成「他人负责，仅供参考」只读区，你选一种）。\n\n【顺手 Medium】api.ts 把 API_PREFIX 当值导入，把 zod 打进主 chunk（382KB）：改成本地常量或 type-only 导入。\n\n验收：pnpm --filter @mailcollect/ui exec tsc --noEmit 与 build 均 exit 0，贴原始输出。",
+      "kind": "repair",
+      "status": "in_progress",
+      "blockedBy": [],
+      "writeScopes": [
+        "apps/ui/"
+      ],
+      "createdAt": "2026-11-04T03:26:23.847Z",
+      "updatedAt": "2026-11-04T03:26:44.823Z",
+      "revision": 3,
+      "owner": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+      "startedAt": "2026-11-04T03:26:25.932Z",
+      "attempt": 1
     }
   ],
   "nextMemberNumber": 5,
-  "nextTaskNumber": 6,
+  "nextTaskNumber": 8,
   "approvedAt": "2026-11-04T02:37:32.961Z"
 }

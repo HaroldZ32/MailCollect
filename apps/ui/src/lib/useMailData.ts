@@ -76,7 +76,10 @@ function emptyCounts(): TaskCounts {
 
 function deriveCounts(tasks: readonly Task[]): TaskCounts {
   const counts = emptyCounts();
-  for (const task of tasks) counts[task.status] += 1;
+  for (const task of tasks) {
+    if (task.owner === "other") continue;
+    counts[task.status] += 1;
+  }
   return counts;
 }
 

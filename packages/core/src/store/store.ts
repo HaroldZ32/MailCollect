@@ -25,11 +25,13 @@ import { bit, type Db, type SqlValue } from "./db.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import {
   toAccount,
+  toChangeLogRow,
   toEmail,
   toProfile,
   toTask,
   toVerdict,
   type AccountRow,
+  type ChangeLogDbRow,
   type EmailRow,
   type LlmConfigRow,
   type ProfileRow,
@@ -115,10 +117,10 @@ export class Store {
   }
 
   changes(since: number, limit = 500): ChangeLogRow[] {
-    const rows = this.db
+    return this.db
       .prepare("SELECT * FROM change_log WHERE seq > ? ORDER BY seq ASC LIMIT ?")
-      .all<ChangeLogRow>(since, limit);
-    return rows;
+      .all<ChangeLogDbRow>(since, limit)
+      .map(toChangeLogRow);
   }
 
   /* -------------------------------- profile -------------------------------- */
@@ -210,6 +212,13 @@ export class Store {
 
   markSynced(accountId: string, at: string): void {
     this.db.prepare("UPDATE account SET last_sync_at = ? WHERE id = ?").run(at, accountId);
+  }
+
+  getLastSync(accountId: string): string | null {
+    const row = this.db
+      .prepare("SELECT last_sync_at FROM account WHERE id = ?")
+      .get<{ last_sync_at: string | null }>(accountId);
+    return row?.last_sync_at ?? null;
   }
 
   /* --------------------------------- cursor -------------------------------- */

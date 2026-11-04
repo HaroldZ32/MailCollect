@@ -95,9 +95,9 @@ const LLM_PRESETS: readonly LlmPreset[] = [
     keyHint: "sk-…",
   },
   {
-    id: "anthropic",
-    name: "Anthropic 官方兼容层",
-    protocol: "anthropic-messages",
+    id: "anthropic-compat",
+    name: "Claude（OpenAI 兼容层）",
+    protocol: "openai-compatible",
     baseUrl: "https://api.anthropic.com/v1",
     model: "claude-sonnet-4-5",
     keyHint: "sk-ant-…",
@@ -851,7 +851,9 @@ export function SettingsPage({
               onChange={(event) => setProtocol(event.target.value as LlmProtocol)}
             >
               <option value="openai-compatible">OpenAI 兼容</option>
-              <option value="anthropic-messages">Anthropic Messages</option>
+              <option value="anthropic-messages" disabled>
+                Anthropic 原生 Messages（后端暂未实现，请用 Claude 兼容层）
+              </option>
             </select>
           </div>
 

@@ -16,6 +16,16 @@ export interface BroadcastInput {
   to: readonly string[];
   cc: readonly string[];
   userEmails: readonly string[];
+  /**
+   * 同一用户时区「同一天」内、与这封正文哈希相同的其它邮件数量（0 = 唯一）。
+   * 由调用方基于整批邮件算好后传入；单封判定时没有这个信息，保持 0。
+   */
+  duplicateBodyCount?: number;
+}
+
+/** 单封邮件之外的附加上下文（批量调用者才拿得到）。 */
+export interface BroadcastContext {
+  duplicateBodyCount?: number;
 }
 
 /** RFC 2369/2919 的 List-* 头部：出现任意一个就是邮件列表。 */
@@ -29,8 +39,11 @@ const NO_REPLY_RE = /no-?reply|do-not-reply|notification|bounce/i;
 
 /**
  * 三态判定。规则顺序即优先级：
- * 强信号（列表头 / 自动回复 / 大批量 / no-reply）→ broadcast；
- * 否则「用户在 To 且 To 人数 ≤ 3」→ personal；其余 uncertain。
+ * 强信号（列表头 / 自动回复 / 大批量 / no-reply / 同日重复正文）→ broadcast；
+ * 否则「用户被写在 To 且收件人基数 ≤ 3」→ personal；其余 uncertain。
+ *
+ * 收件人基数 = To + Cc（R4 明写「To/Cc 基数」）。只数 To 会漏掉
+ * 「To 只有我、Cc 两百人」这种典型群发。
  */
 export function judgeBroadcast(input: BroadcastInput): BroadcastVerdict {
   const headers = normalizeHeaders(input.headers);
@@ -64,18 +77,25 @@ export function judgeBroadcast(input: BroadcastInput): BroadcastVerdict {
   const to = input.to.map(normalizeAddress).filter((address) => address !== "");
   const cc = input.cc.map(normalizeAddress).filter((address) => address !== "");
   const userEmails = input.userEmails.map(normalizeAddress).filter((address) => address !== "");
-  const toCount = to.length;
+  // R4 的「To/Cc 基数」：两者都算人。
+  const recipientCount = to.length + cc.length;
   const userInTo = userEmails.length > 0 && userEmails.some((email) => to.includes(email));
   const userInCc = userEmails.length > 0 && userEmails.some((email) => cc.includes(email));
 
-  if (toCount >= 10) {
-    add("to-count:>=10");
+  if (recipientCount >= 10) {
+    add("recipients:>=10");
     strong = true;
   }
 
   const fromLocalPart = (normalizeAddress(input.fromEmail).split("@")[0] ?? "").toLowerCase();
   if (fromLocalPart !== "" && NO_REPLY_RE.test(fromLocalPart)) {
     add("from:no-reply");
+    strong = true;
+  }
+
+  // 同一天多条正文完全相同 → 典型群发/自动通知（R4 的「去重正文哈希」）。
+  if ((input.duplicateBodyCount ?? 0) >= 1) {
+    add("body-hash");
     strong = true;
   }
 
@@ -87,23 +107,30 @@ export function judgeBroadcast(input: BroadcastInput): BroadcastVerdict {
 
   if (strong) return { kind: "broadcast", signals };
 
-  if (userInTo && toCount <= 3) {
-    add("to-count:<=3");
+  if (userInTo && recipientCount <= 3) {
+    add("recipients:<=3");
     return { kind: "personal", signals };
   }
 
-  if (toCount > 3) add("to-count:>3");
+  if (recipientCount > 3) add("recipients:>3");
   return { kind: "uncertain", signals };
 }
 
 /** 便捷入口：直接从一封已入库的邮件 + 用户档案判定。 */
-export function classifyBroadcast(email: RawEmail, profile: UserProfile): BroadcastVerdict {
+export function classifyBroadcast(
+  email: RawEmail,
+  profile: UserProfile,
+  context: BroadcastContext = {},
+): BroadcastVerdict {
   return judgeBroadcast({
     headers: email.headers,
     fromEmail: email.fromEmail,
     to: email.to,
     cc: email.cc,
     userEmails: profile.emails,
+    ...(context.duplicateBodyCount === undefined
+      ? {}
+      : { duplicateBodyCount: context.duplicateBodyCount }),
   });
 }
 

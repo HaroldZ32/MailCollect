@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "taskId": "T7",
+  "subject": "返修：Anthropic 预设协议 + owner=other 不当作我的待办",
+  "description": "验证方（T4）判定 UI 泳道 FAIL，两个 High 必须修。范围仅 apps/ui/**。\n\n【H5】Anthropic 预设选了后端必抛错的协议\n现状：SettingsPage.tsx 的 LLM_PRESETS 里 anthropic 条目 protocol=\"anthropic-messages\"（还标成「官方兼容层」），而 core/llm/index.ts 的 createLlmPort 对该协议直接抛 LlmError → 用户选中即不可用。core 的 PROVIDER_PRESETS 里其实有正确形态。\n要求：改成 protocol=\"openai-compatible\"，baseUrl=https://api.anthropic.com/v1，label 写明「Claude（OpenAI 兼容层）」。检查其余预设也都用 openai-compatible。\n\n【H2·UI 侧】owner=other 的条目不能被当成我的待办\n现状：TasksPage 的 candidates 只滤 status/origin；TaskCard 给 owner=\"other\" 的条目也渲染「加入待办」。\n要求：待确认区只列 owner ∈ {me, unassigned}；owner=other 的不要出现在可操作卡片里（可以完全不显，或单独折叠成「他人负责，仅供参考」只读区，你选一种）。\n\n【顺手 Medium】api.ts 把 API_PREFIX 当值导入，把 zod 打进主 chunk（382KB）：改成本地常量或 type-only 导入。\n\n验收：pnpm --filter @mailcollect/ui exec tsc --noEmit 与 build 均 exit 0，贴原始输出。",
+  "blockedBy": [],
+  "writeScopes": [
+    "apps/ui/"
+  ],
+  "attempt": 1,
+  "claimedBy": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+  "claimedAt": "2026-11-04T03:26:44.823Z",
+  "revision": 2
+}

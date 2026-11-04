@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import type { LlmConfig, ServerEvent } from "@mailcollect/shared";
+import type { LlmConfig, ServerEvent, Task } from "@mailcollect/shared";
 import { openStore } from "@mailcollect/core";
 import { createMailSource } from "@mailcollect/core/mail";
 import { createLlmPort } from "@mailcollect/core/llm";
 import { processEmail, type PipelineDeps } from "@mailcollect/core/pipeline";
 import { createApp } from "./app.js";
+import { normalizeListId } from "./list-id.js";
 import type { ServerServices } from "./services.js";
 
 const VERSION = "0.1.0";
@@ -141,7 +142,20 @@ const services: ServerServices = {
       try {
         const { verdict, tasks } = await processEmail(deps, email);
         store.setBroadcastVerdict(email.id, verdict);
-        const inserted = store.insertTasks(tasks);
+
+        // A remembered "always a task / always noise" decision for this mailing
+        // list overrides the default candidate status. Without this the
+        // broadcast_decision table would be write-only (a real defect).
+        const listId = normalizeListId(email.headers["list-id"]);
+        const decision = listId ? store.getBroadcastDecision(listId) : null;
+        const routed: Task[] = decision
+          ? tasks.map((task) => ({
+              ...task,
+              status: decision === "always_task" ? "confirmed" : "dismissed",
+            }))
+          : tasks;
+
+        const inserted = store.insertTasks(routed);
         for (const task of inserted) emit({ type: "task", data: task });
         store.markExtracted(email.id, null);
       } catch (error) {

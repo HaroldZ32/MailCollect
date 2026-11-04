@@ -59,8 +59,9 @@ function timeChip(task: Task) {
 }
 
 export function TaskCard({ task, onComplete, onConfirm, onDismiss, onOpenTimeline }: TaskCardProps) {
-  const isCandidate = task.status === "candidate";
-  const isConfirmed = task.status === "confirmed";
+  const actionable = task.owner !== "other";
+  const isCandidate = actionable && task.status === "candidate";
+  const isConfirmed = actionable && task.status === "confirmed";
   const timed = task.time !== null && (task.time.dueAt !== null || task.time.windowStart !== null);
 
   return (

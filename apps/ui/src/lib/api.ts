@@ -1,4 +1,3 @@
-import { API_PREFIX } from "@mailcollect/shared";
 import type {
   AccountView,
   ApiErrorBody,
@@ -35,6 +34,9 @@ declare global {
     __MAILCOLLECT__?: MailCollectRuntime;
   }
 }
+
+// 与 packages/shared/src/api.ts 的冻结契约保持一致；用本地常量避免把 shared 的运行时依赖（zod）打进首屏 chunk。
+const API_PREFIX = "/api";
 
 export const TOKEN_STORAGE_KEY = "mailcollect.token";
 const DEV_FALLBACK_TOKEN = "dev-local-token";

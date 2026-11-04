@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "taskId": "T6",
+  "subject": "返修：群发基数量计入 Cc + owner→status 映射",
+  "description": "验证方（T4）对照冻结契约判定 Pipeline 泳道 FAIL，两个 High 必须修。范围仅 packages/core/src/pipeline/**。\n\n【H1】broadcast 基数量漏算 Cc（R4 明写「To/Cc 基数」）\n现状：judgeBroadcast 只用 to.length。实测 To=1 + Cc=200 → {kind:\"personal\"}。\n要求：基数量改为 to.length + cc.length；用户仅在 Cc 不在 To 时继续加权；补一条回归测试（To=1+Cc=200 必须不是 personal）。\n\n【H2】R3 的 owner → status 映射缺失\n现状：extract.ts 的 toTask 一律 status=\"candidate\"；domain.ts 注释写「Only `me` becomes a TODO automatically」；实测 listTasks 返回 owner:\"other\" 且 UI 能「加入待办」。\n要求：toTask 里按规则映射：\n  owner===\"me\" 且 verdict.kind===\"personal\"  → status=\"confirmed\"\n  其他一律 status=\"candidate\"（包括 me+broadcast：R4 要用户自己决定）\n补测试：点名任务→confirmed；群发（即使 owner=me）→candidate；owner=other→candidate。\n\n【顺手】hashBody 已实现但判定从不调用——若能用它做「同日多条正文哈希相同 → 降级为 broadcast」并在 signals 里记 body-hash，就一并做；做不了就写进报告说明原因。\n\n验收：pnpm --filter @mailcollect/core exec tsc --noEmit 与 test 均 exit 0，贴原始输出。不得修改冻结文件（types.ts / domain.ts / extraction.ts / port.ts）。",
+  "blockedBy": [],
+  "writeScopes": [
+    "packages/core/src/pipeline/"
+  ],
+  "attempt": 1,
+  "claimedBy": "96029026-4892-41b7-bba1-06bd613ccd62",
+  "claimedAt": "2026-11-04T03:27:02.435Z",
+  "revision": 2
+}

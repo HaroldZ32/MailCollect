@@ -42,7 +42,9 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
   const broadcastIdsKey = useMemo(() => {
     const ids = new Set<string>();
     for (const task of tasks) {
-      if (task.status === "candidate" && task.origin === "broadcast") ids.add(task.sourceEmailId);
+      if (task.status === "candidate" && task.origin === "broadcast" && task.owner !== "other") {
+        ids.add(task.sourceEmailId);
+      }
     }
     return [...ids].sort().join(",");
   }, [tasks]);
@@ -88,7 +90,7 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
   const groups = useMemo(() => {
     const byEmail = new Map<string, Task[]>();
     for (const task of tasks) {
-      if (task.status !== "candidate" || task.origin !== "broadcast") continue;
+      if (task.status !== "candidate" || task.origin !== "broadcast" || task.owner === "other") continue;
       const bucket = byEmail.get(task.sourceEmailId);
       if (bucket === undefined) {
         byEmail.set(task.sourceEmailId, [task]);
@@ -115,11 +117,23 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
   }, [tasks, emailDetails]);
 
   const candidates = useMemo(
-    () => tasks.filter((task) => task.status === "candidate" && task.origin !== "broadcast"),
+    () =>
+      tasks.filter(
+        (task) =>
+          task.status === "candidate" &&
+          task.origin !== "broadcast" &&
+          (task.owner === "me" || task.owner === "unassigned"),
+      ),
     [tasks],
   );
-  const confirmed = useMemo(() => tasks.filter((task) => task.status === "confirmed"), [tasks]);
-  const done = useMemo(() => tasks.filter((task) => task.status === "done"), [tasks]);
+  const confirmed = useMemo(
+    () => tasks.filter((task) => task.status === "confirmed" && task.owner !== "other"),
+    [tasks],
+  );
+  const done = useMemo(
+    () => tasks.filter((task) => task.status === "done" && task.owner !== "other"),
+    [tasks],
+  );
 
   const decideGroup = async (
     group: BroadcastGroup,

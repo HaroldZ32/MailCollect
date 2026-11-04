@@ -20,6 +20,7 @@ import type {
 } from "@mailcollect/shared";
 import { API_PREFIX } from "@mailcollect/shared";
 import type { Store } from "@mailcollect/core";
+import { normalizeListId } from "./list-id.js";
 import type { ServerServices } from "./services.js";
 
 export interface AppOptions {
@@ -136,7 +137,7 @@ export function createApp(options: AppOptions): Hono {
       email: account.email,
       enabled: account.enabled,
       hasSecret: Boolean(withSecret?.secret),
-      lastSyncAt: null,
+      lastSyncAt: store.getLastSync(account.id),
       createdAt: account.createdAt,
     };
   };
@@ -194,7 +195,13 @@ export function createApp(options: AppOptions): Hono {
       const { body, status } = fail("not_found", "邮件不存在", 404);
       return c.json(body, status as 404);
     }
-    return c.json({ email, verdict: store.getBroadcastVerdict(email.id) });
+    return c.json({
+      email,
+      verdict: store.getBroadcastVerdict(email.id),
+      // The stable key a "remember this list" decision is stored under. The UI
+      // must echo this exact value back in BulkDecisionInput.listId.
+      listId: normalizeListId(email.headers["list-id"]),
+    });
   });
 
   /* ---------------------------------- tasks --------------------------------- */

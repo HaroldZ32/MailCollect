@@ -268,4 +268,15 @@ describe("http api", () => {
     const tailBody = (await tail.json()) as { items: unknown[] };
     expect(tailBody.items).toHaveLength(0);
   });
+
+  it("returns the change stream in the frozen camelCase shape", async () => {
+    const res = await call("/api/sync/changes?since=0");
+    const body = (await res.json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    const first = body.items[0];
+    expect(first).toBeDefined();
+    expect(Object.keys(first ?? {})).not.toContain("entity_id");
+    expect(Object.keys(first ?? {})).not.toContain("device_id");
+  });
 });

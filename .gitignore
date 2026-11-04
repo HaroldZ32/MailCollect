@@ -21,3 +21,12 @@ coverage/
 .mpd/memory/
 .mpd/team/watchdog/
 evidence/**/*.png
+
+# 截图证据与 agent 运行态：留在本地，不进仓库
+apps/ui/.shots/
+.mpd/team/
+.mpd/team-compact/
+.mpd/verify/
+.mpd/logs/
+.mpd/lsp/
+.mpd/project-init.json

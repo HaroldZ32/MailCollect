@@ -312,7 +312,7 @@ export class GraphMailSource implements MailSource {
     this.#account = account;
     this.#config = readGraphConfig(account);
     this.#secrets = [account.secret];
-    this.#auth = options.auth ?? new MsalDeviceCodeAuth(this.#config, options.onDeviceCode);
+    this.#auth = options.auth ?? this.#createAuth(options.onDeviceCode);
     this.#fetch = options.fetch ?? ((input, init) => fetch(input, init));
   }
 
@@ -346,7 +346,7 @@ export class GraphMailSource implements MailSource {
     try {
       const token = await this.#auth.getAccessToken();
       const cursorValue = options.since?.value ?? null;
-      const url = cursorValue ?? this.#startUrl(options);
+      const url = cursorValue === null ? this.#startUrl(options) : this.#verifyCursorUrl(cursorValue);
       const page = await this.#deltaPage(url, token, options.signal);
 
       const emails: RawEmail[] = [];
@@ -378,6 +378,25 @@ export class GraphMailSource implements MailSource {
 
   async close(): Promise<void> {
     this.#closed = true;
+  }
+
+  #createAuth(onDeviceCode?: (notice: DeviceCodeNotice) => void): GraphAuth {
+    try {
+      return new MsalDeviceCodeAuth(this.#config, onDeviceCode);
+    } catch (err) {
+      throw toMailError(err, this.#secrets);
+    }
+  }
+
+  /**
+   * 游标里的 URL 会带着 Bearer 令牌去请求：只接受属于配置端点的地址，
+   * 避免被篡改的游标把令牌发到任意主机。
+   */
+  #verifyCursorUrl(cursorValue: string): string {
+    if (!cursorValue.startsWith(`${this.#config.baseUrl}/`)) {
+      throw new MailError("protocol", "Graph 游标 URL 不属于配置的端点，拒绝带令牌请求", false);
+    }
+    return cursorValue;
   }
 
   #startUrl(options: FetchOptions): string {

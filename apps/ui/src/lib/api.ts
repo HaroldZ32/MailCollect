@@ -110,6 +110,10 @@ export function hasInjectedRuntime(): boolean {
   return window.__MAILCOLLECT__ !== undefined;
 }
 
+export function hasStoredToken(): boolean {
+  return readStoredToken() !== null;
+}
+
 function queryString(params: Readonly<Record<string, string | number | boolean | undefined>>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

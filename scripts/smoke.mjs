@@ -46,9 +46,9 @@ const ready = await new Promise((resolve, reject) => {
 
 const base = `http://127.0.0.1:${ready.port}`;
 const results = [];
-const call = async (name, path, init = {}, expectStatus = 200) => {
+const call = async (name, path, init = {}, expectStatus = 200, anonymous = false) => {
   const headers = new Headers(init.headers);
-  headers.set("authorization", `Bearer ${ready.token}`);
+  if (!anonymous) headers.set("authorization", `Bearer ${ready.token}`);
   if (init.body) headers.set("content-type", "application/json");
   const res = await fetch(`${base}${path}`, { ...init, headers });
   const text = await res.text();
@@ -58,7 +58,7 @@ const call = async (name, path, init = {}, expectStatus = 200) => {
 };
 
 await call("health 无需令牌", "/api/health");
-await call("未授权被拒", "/api/profile", {}, 401);
+await call("未授权被拒", "/api/profile", {}, 401, true);
 await call("写入档案", "/api/profile", {
   method: "PUT",
   body: JSON.stringify({

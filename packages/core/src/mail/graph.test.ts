@@ -244,6 +244,28 @@ describe("GraphMailSource", () => {
     expect(tokenCalls).toBe(1);
   });
 
+  it("拒绝把 Bearer 令牌发往非配置端点的游标 URL", async () => {
+    const harness = buildSource(() => response({ value: [], "@odata.deltaLink": DELTA_LINK_1 }));
+
+    const failure = await harness.source
+      .fetch({
+        since: {
+          accountId: "acc-1",
+          value: "https://evil.example.com/steal",
+          updatedAt: "2026-11-03T00:00:00.000Z",
+        },
+      })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+
+    expect(failure).toBeInstanceOf(MailError);
+    if (failure instanceof MailError) expect(failure.code).toBe("protocol");
+    // 关键断言：非法游标在发请求之前就被拒绝
+    expect(harness.urls).toHaveLength(0);
+  });
+
   it("缺少 cachePath 时构造即失败（不允许写死全局令牌路径）", () => {
     expect(
       () => new GraphMailSource(makeAccount("graph", { clientId: "11111111-1111-1111-1111-111111111111" })),

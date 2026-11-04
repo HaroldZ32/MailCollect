@@ -239,15 +239,21 @@ export class Pop3MailSource implements MailSource {
     if (this.#closed) throw new MailError("protocol", "POP3 适配器已关闭", false);
     const existing = this.#client;
     if (existing !== null) return existing;
-    this.#client = this.#createClient({
-      host: this.#config.host,
-      port: this.#config.port,
-      tls: this.#config.tls,
-      user: this.#config.user,
-      password: this.#account.secret,
-      timeoutMs: this.#config.timeoutMs,
-    });
-    return this.#client;
+    let client: Pop3ClientLike;
+    try {
+      client = this.#createClient({
+        host: this.#config.host,
+        port: this.#config.port,
+        tls: this.#config.tls,
+        user: this.#config.user,
+        password: this.#account.secret,
+        timeoutMs: this.#config.timeoutMs,
+      });
+    } catch (err) {
+      throw toMailError(err, this.#secrets);
+    }
+    this.#client = client;
+    return client;
   }
 
   async #disconnect(): Promise<void> {
@@ -256,9 +262,9 @@ export class Pop3MailSource implements MailSource {
     if (client === null) return;
     try {
       await client.QUIT();
-    } catch (err) {
-      if (!(err instanceof Error)) throw err;
-      // 连接已断时 QUIT 必然失败：套接字已不可用，无需再收尾。
+    } catch {
+      // no-excuse-ok: catch —— 连接已断时 QUIT 必然失败；套接字已不可用，无需再收尾，
+      // 也不能用清理异常盖掉真正的错误。
     }
   }
 

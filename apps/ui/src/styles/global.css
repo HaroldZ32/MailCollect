@@ -38,7 +38,8 @@ h1,
 h2,
 h3,
 h4,
-p {
+p,
+blockquote {
   margin: 0;
 }
 
@@ -2095,6 +2096,43 @@ a {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid rgba(47, 124, 246, 0.08);
+}
+
+.chip--muted {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary);
+}
+
+.task-card--candidate {
+  background: linear-gradient(152deg, rgba(255, 255, 255, 0.74), rgba(255, 248, 235, 0.52));
+}
+
+.boot-card {
+  width: min(460px, 100%);
+}
+
+.boot .form-actions {
+  justify-content: center;
+}
+
+.page-scroll--fixed {
+  overflow: auto;
+}
+
+.page--full {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: none;
+}
+
+.page--full > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.timeline-card {
+  min-height: 440px;
 }
 
 /* --------------------------- animations ------------------------------- */

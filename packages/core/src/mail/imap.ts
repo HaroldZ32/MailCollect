@@ -311,7 +311,12 @@ export class ImapMailSource implements MailSource {
     const existing = this.#client;
     if (existing !== null) return existing;
 
-    const client = this.#createClient(this.#clientOptions());
+    let client: ImapClientLike;
+    try {
+      client = this.#createClient(this.#clientOptions());
+    } catch (err) {
+      throw toMailError(err, this.#secrets);
+    }
     // imapflow 在连接层 emit 'error'；没有监听器时 EventEmitter 会抛错并终止进程。
     // 连接状态由下一次操作失败来体现，这里只负责不让进程崩溃。
     client.on("error", () => undefined);
@@ -331,9 +336,9 @@ export class ImapMailSource implements MailSource {
     if (client === null) return;
     try {
       await client.logout();
-    } catch (err) {
-      if (!(err instanceof Error)) throw err;
-      // 连接已断时 LOGOUT 必然失败：close() 只做套接字收尾，不向上抛。
+    } catch {
+      // no-excuse-ok: catch —— 连接已断时 LOGOUT 必然失败；close() 是幂等收尾，
+      // 这里不能再抛，否则会盖掉真正的错误。
       client.close();
     }
   }

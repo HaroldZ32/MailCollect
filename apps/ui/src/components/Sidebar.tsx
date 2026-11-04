@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
 import type { ConnectionMode } from "../lib/useMailData";
@@ -42,6 +43,9 @@ export interface SidebarProps {
 }
 
 export function Sidebar({ page, candidateCount, profileName, profileMeta, mode, onNavigate }: SidebarProps) {
+  const hue = hueFor(profileName);
+  const avatarBackground = `linear-gradient(140deg, hsl(${hue + 6} 92% 70%), hsl(${hue} 80% 54%))`;
+
   return (
     <aside className="sidebar" aria-label="主导航">
       <div className="brand">
@@ -79,7 +83,7 @@ export function Sidebar({ page, candidateCount, profileName, profileMeta, mode, 
 
       <div className="sidebar-footer">
         <div className="profile-chip">
-          <div className="avatar" style={{ ["--hue" as string]: hueFor(profileName) }}>
+          <div className="avatar" style={{ background: avatarBackground }}>
             {initials(profileName)}
           </div>
           <div className="profile-chip-text">
@@ -88,7 +92,7 @@ export function Sidebar({ page, candidateCount, profileName, profileMeta, mode, 
           </div>
         </div>
         <div className="conn">
-          <span className={mode === "live" ? "conn-dot" : `conn-dot ${MODE_DOT[mode]}`.trim()} />
+          <span className={clsx("conn-dot", MODE_DOT[mode])} />
           <span>{MODE_LABEL[mode]}</span>
         </div>
       </div>

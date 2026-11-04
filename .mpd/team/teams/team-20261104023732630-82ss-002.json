@@ -12,7 +12,7 @@
       "id": "M1",
       "name": "senior-engineer-1",
       "description": "Senior Engineer — 邮件适配器泳道：IMAP / POP3 / Microsoft Graph",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "role": "Senior Engineer",
       "workmate": "senior-engineer-1",
@@ -23,7 +23,7 @@
       "id": "M2",
       "name": "pipeline-engineer",
       "description": "Senior Engineer — 抽取流水线泳道：多 LLM 端口 / 剥引文 / 群发判定 / 时间解析",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -56,35 +56,39 @@
       "subject": "邮件适配器：IMAP / POP3 / Microsoft Graph",
       "description": "实现 packages/core/src/mail/{imap,pop3,graph,index}.ts + 单测，严格实现已冻结的 MailSource 接口。\n\n验收：\n1. pnpm --filter @mailcollect/core exec tsc --noEmit 通过\n2. pnpm --filter @mailcollect/core test 通过\n3. 覆盖：首次同步窗口上限、增量游标推进、UIDVALIDITY 变化重置、POP3 UIDL 去重、错误码映射、POP3 watch 返回 null\n4. 日志与返回值中不出现 secret\n5. 不修改 packages/core/src/mail/types.ts",
       "kind": "work",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [],
       "writeScopes": [
         "packages/core/src/mail/"
       ],
       "createdAt": "2026-11-04T02:37:32.631Z",
-      "updatedAt": "2026-11-04T02:37:54.791Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T02:54:30.668Z",
+      "revision": 4,
       "owner": "4c7adb2a-9cca-4a86-bc69-1e56a10806a3",
       "startedAt": "2026-11-04T02:37:41.088Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "三适配器 + 工厂 + 30 个 mock 单测完成；tsc --noEmit 退出0，core 测试 13 文件/128 通过。types.ts 未改。",
+      "finishedAt": "2026-11-04T02:54:30.668Z"
     },
     {
       "id": "T2",
       "subject": "抽取流水线：多 LLM 端口 / 剥引文 / 群发判定 / 时间解析",
       "description": "实现 packages/core/src/pipeline/** 与 packages/core/src/llm/**。\n\n验收：\n1. pnpm --filter @mailcollect/core exec tsc --noEmit 通过\n2. pnpm --filter @mailcollect/core test 通过\n3. 5 个端到端样本用例（点名任务 / 群发通知 / 纯广告 / 含硬截止 / 含时段）的 owner 与 broadcast 判定正确\n4. 空响应 → LlmError(blank_response)，绝不返回 noTasks\n5. 时间只用 chrono-node 确定性解析，模型不参与日期运算\n6. 无 import ../store/**",
       "kind": "work",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [],
       "writeScopes": [
         "packages/core/src/pipeline/",
         "packages/core/src/llm/"
       ],
       "createdAt": "2026-11-04T02:37:32.631Z",
-      "updatedAt": "2026-11-04T02:37:49.988Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T02:52:53.875Z",
+      "revision": 4,
       "owner": "96029026-4892-41b7-bba1-06bd613ccd62",
       "startedAt": "2026-11-04T02:37:41.090Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "抽取流水线泳道完成：llm/{openai-compatible,index}.ts + pipeline/{types,strip,identity,broadcast,time,extract,index}.ts + 8 个测试文件；core tsc EXIT 0，core vitest 13 文件/127 测试全绿（本泳道 86 条）；processEmail/classifyBroadcast/stripQuoted/createLlmPort 按集成契约导出，server tsc 亦通过。",
+      "finishedAt": "2026-11-04T02:52:53.875Z"
     },
     {
       "id": "T3",

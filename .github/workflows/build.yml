@@ -1,0 +1,60 @@
+name: build
+
+# 用法：
+#   1) 在 GitHub 上手动触发（Actions → build → Run workflow）
+#   2) 或者打一个 v* 标签，自动出三端安装包
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  dist:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+          - os: ubuntu-latest
+            target: linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      # 门禁先过，避免打出一个跑不起来的包
+      - run: npm run typecheck
+      - run: npm test
+
+      # UI 构建 + 服务端单文件打包 + Electron main/preload
+      - name: Build production bundle
+        run: node apps/desktop/scripts/build-prod.mjs
+
+      # 在目标平台上打包，Windows 走 NSIS、macOS 走 dmg、Linux 走 AppImage
+      - name: Package
+        working-directory: apps/desktop
+        run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          # 想签名就配这两个 secret；不配就是未签名包（Windows 会弹 SmartScreen）
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MailCollect-${{ matrix.target }}
+          if-no-files-found: warn
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage

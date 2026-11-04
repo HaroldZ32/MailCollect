@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS broadcast_decision (
   updated_at TEXT NOT NULL
 );
 
+-- LLM providers the user configured. Keys are encrypted like mailbox secrets.
+CREATE TABLE IF NOT EXISTS llm_config (
+  id            TEXT PRIMARY KEY,
+  label         TEXT NOT NULL,
+  protocol      TEXT NOT NULL,
+  base_url      TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  api_key_cipher TEXT,
+  temperature   REAL NOT NULL DEFAULT 0.2,
+  max_tokens    INTEGER NOT NULL DEFAULT 2048,
+  timeout_ms    INTEGER NOT NULL DEFAULT 60000,
+  is_default    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL
+);
+
 -- Append-only outbox: the reserved cloud-sync seam (R7).
 CREATE TABLE IF NOT EXISTS change_log (
   seq       INTEGER PRIMARY KEY AUTOINCREMENT,

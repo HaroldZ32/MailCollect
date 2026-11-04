@@ -1,4 +1,5 @@
 import type {
+  ChangeLogRow,
   LlmProtocol,
   MailProvider,
   RawEmail,
@@ -141,6 +142,28 @@ export interface LlmTestResponse {
   detail: string;
 }
 
+export interface LlmConfigInput {
+  label: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  /** Only sent when the user types a key; never returned by the server. */
+  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+  isDefault?: boolean;
+}
+
+export interface LlmConfigView {
+  id: string;
+  label: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+  isDefault: boolean;
+}
+
 /* ----------------------------------- sync ----------------------------------- */
 
 export interface SyncRequest {
@@ -159,6 +182,15 @@ export interface ExtractRequest {
   emailIds?: string[];
 }
 
+/**
+ * The reserved cloud-sync seam (R7).
+ * A future sync backend only has to reproduce this ordered operation stream.
+ */
+export interface SyncChangesResponse {
+  head: number;
+  items: ChangeLogRow[];
+}
+
 /* ----------------------------------- SSE ------------------------------------ */
 
 export type ServerEvent =
@@ -166,4 +198,19 @@ export type ServerEvent =
   | { type: "task"; data: Task }
   | { type: "email"; data: { id: string; accountId: string; subject: string } }
   | { type: "extract"; data: { done: number; total: number } }
-  | { type: "error"; data: { message: string } };
+  | { type: "error"; data: { message: string } }
+  /** Microsoft Graph device-code login: show this to the user, then wait. */
+  | {
+      type: "device-code";
+      data: {
+        accountId: string;
+        userCode: string;
+        verificationUri: string;
+        message: string;
+        expiresInSeconds: number;
+      };
+    }
+  | {
+      type: "device-login";
+      data: { accountId: string; ok: boolean; detail: string };
+    };

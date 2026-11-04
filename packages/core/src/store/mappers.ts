@@ -2,6 +2,8 @@ import type {
   Account,
   BroadcastKind,
   BroadcastVerdict,
+  ChangeLogRow,
+  ChangeOp,
   MailProvider,
   RawEmail,
   Task,
@@ -81,6 +83,20 @@ export interface VerdictRow {
   email_id: string;
   kind: string;
   signals_json: string;
+}
+
+export interface LlmConfigRow {
+  id: string;
+  label: string;
+  protocol: string;
+  base_url: string;
+  model: string;
+  api_key_cipher: string | null;
+  temperature: number;
+  max_tokens: number;
+  timeout_ms: number;
+  is_default: number;
+  created_at: string;
 }
 
 const parseArray = (json: string): string[] => {
@@ -180,4 +196,31 @@ export const toTask = (row: TaskRow): Task => ({
 export const toVerdict = (row: VerdictRow): BroadcastVerdict => ({
   kind: row.kind as BroadcastKind,
   signals: parseArray(row.signals_json),
+});
+
+/** Raw shape of a `change_log` row — snake_case on purpose (DB column names). */
+export interface ChangeLogDbRow {
+  seq: number;
+  entity: string;
+  entity_id: string;
+  rev: string;
+  device_id: string;
+  op: string;
+  payload: string;
+  ts: string;
+}
+
+/**
+ * Maps a DB row onto the FROZEN `ChangeLogRow` contract (camelCase).
+ * Skipping this was a real defect: the sync seam was returning `entity_id`.
+ */
+export const toChangeLogRow = (row: ChangeLogDbRow): ChangeLogRow => ({
+  seq: Number(row.seq),
+  entity: row.entity,
+  entityId: row.entity_id,
+  rev: row.rev,
+  deviceId: row.device_id,
+  op: row.op as ChangeOp,
+  payload: row.payload,
+  ts: row.ts,
 });

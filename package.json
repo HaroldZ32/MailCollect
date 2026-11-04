@@ -12,7 +12,13 @@
     "dev:desktop": "npm run dev -w @mailcollect/desktop",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "smoke": "node scripts/smoke.mjs",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "dist:win": "npm run build:win -w @mailcollect/desktop",
+    "dist:mac": "npm run build:mac -w @mailcollect/desktop",
+    "dist:linux": "npm run build:linux -w @mailcollect/desktop",
+    "dist:win:portable": "npm run build:win:dir -w @mailcollect/desktop && node scripts/zip-win.mjs"
   },
   "workspaces": [
     "apps/*",
@@ -22,5 +28,8 @@
     "esbuild@0.28.2": true,
     "electron@45.2.2": true,
     "electron-winstaller@5.4.0": true
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }

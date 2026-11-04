@@ -3,18 +3,60 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.mjs",
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
-    "build:main": "tsc -p tsconfig.json",
-    "build": "tsc -p tsconfig.json && electron-builder",
-    "typecheck": "tsc --noEmit"
+    "dev": "node scripts/dev.mjs",
+    "build:main": "node scripts/build-main.mjs",
+    "build:web": "node scripts/build-prod.mjs",
+    "typecheck": "tsc --noEmit",
+    "build:win": "node scripts/build-prod.mjs && electron-builder --win nsis",
+    "build:mac": "node scripts/build-prod.mjs && electron-builder --mac dmg",
+    "build:linux": "node scripts/build-prod.mjs && electron-builder --linux AppImage",
+    "build:win:dir": "node scripts/build-prod.mjs && electron-builder --win dir"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "electron": "^45.2.2",
+    "electron": "45.2.2",
     "electron-builder": "^26.18.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "com.mailcollect.app",
+    "productName": "MailCollect",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "ui/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "dir",
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "executableName": "mailcollect"
+    },
+    "electronVersion": "45.2.2",
+    "executableName": "mailcollect"
+  },
+  "description": "MailCollect 桌面端：AI 邮件待办抽取 + 群发分流 + 甘特图",
+  "author": {
+    "name": "MailCollect"
   }
 }

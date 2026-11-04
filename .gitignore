@@ -1,14 +1,16 @@
 node_modules/
 .pnpm-store/
 .cache/
+.home/
+.data/
 dist/
 dist-electron/
+apps/desktop/ui/
 release/
 *.log
 .env
 .env.*
 !.env.example
-data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
@@ -16,3 +18,15 @@ data/
 .vite/
 coverage/
 .mpd/boulder.json
+.mpd/memory/
+.mpd/team/watchdog/
+evidence/**/*.png
+
+# 截图证据与 agent 运行态：留在本地，不进仓库
+apps/ui/.shots/
+.mpd/team/
+.mpd/team-compact/
+.mpd/verify/
+.mpd/logs/
+.mpd/lsp/
+.mpd/project-init.json

@@ -194,7 +194,9 @@ export class Store {
         input.label,
         input.email,
         JSON.stringify(input.config),
-        encryptSecret(this.key, input.secret),
+        // Graph device-code accounts legitimately have no secret to paste; store
+        // NULL instead of an undecryptable empty ciphertext.
+        input.secret.length > 0 ? encryptSecret(this.key, input.secret) : null,
         now,
       );
     const row = this.db.prepare("SELECT * FROM account WHERE id = ?").get<AccountRow>(id);

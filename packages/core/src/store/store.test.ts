@@ -75,6 +75,21 @@ describe("store", () => {
     expect(store.driver).toBe("node:sqlite");
   });
 
+  it("accepts an account with no secret (Graph device-code accounts paste nothing)", () => {
+    const account = store.createAccount({
+      provider: "graph",
+      label: "Outlook",
+      email: "me@outlook.com",
+      config: { clientId: "abc", tenant: "common" },
+      secret: "",
+    });
+    // Reading it back must not throw — an empty ciphertext used to break every
+    // account listing with "unsupported secret payload".
+    const loaded = store.getAccountWithSecret(account.id);
+    expect(loaded?.secret).toBe("");
+    expect(store.listAccounts()).toHaveLength(2);
+  });
+
   it("round-trips the user profile", () => {
     const created = store.upsertProfile({
       displayName: "张三",

@@ -93,6 +93,8 @@ const stats = {
   accountsFetches: 0,
   loginRequests: 0,
   lastLoginAccountId: null,
+  accountCreates: 0,
+  lastAccountCreate: null,
 };
 
 const json = (res, status, body) => {
@@ -173,7 +175,20 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname === "/api/accounts" && req.method === "POST") {
     const input = await readBody(req);
-    const account = { ...accountSeed(), id: `acc-${Date.now()}`, label: input.label ?? "新账号", email: input.email ?? "" };
+    const config = input.config ?? {};
+    stats.accountCreates += 1;
+    stats.lastAccountCreate = { provider: input.provider ?? null, config };
+    if (input.provider === "graph" && (typeof config.clientId !== "string" || config.clientId.trim() === "")) {
+      return json(res, 400, {
+        error: { code: "invalid_input", message: "Graph 账号需要 clientId（在你自己的 Azure 应用注册里获取）" },
+      });
+    }
+    if (input.provider === "graph" && config.clientId === "bad-client-id") {
+      return json(res, 400, {
+        error: { code: "invalid_input", message: "Graph clientId 无效（stub 拒绝）" },
+      });
+    }
+    const account = { ...accountSeed(), id: `acc-${Date.now()}`, label: input.label ?? "新账号", email: input.email ?? "", provider: input.provider ?? "imap" };
     accounts.push(account);
     return json(res, 201, { account });
   }

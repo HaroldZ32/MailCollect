@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { Hono } from "hono";
@@ -30,6 +31,8 @@ export interface AppOptions {
   version: string;
   /** Absolute path to the built UI; served in production. */
   uiDir?: string | undefined;
+  /** Directory the server owns; Graph token caches are derived from it. */
+  dataDir?: string | undefined;
   /** Extra origins allowed to call /api (dev only). */
   allowedOrigins?: string[];
 }
@@ -152,11 +155,33 @@ export function createApp(options: AppOptions): Hono {
       const { body, status } = fail("invalid_input", "provider 与 email 必填", 400);
       return c.json(body, status as 400);
     }
+
+    const config: Record<string, string> = { ...(input.config ?? {}) };
+    if (input.provider === "graph") {
+      // MSAL needs a writable cache path; the UI cannot know the data directory,
+      // so the server derives a stable per-mailbox one instead of failing later
+      // with "Graph 配置缺少 cachePath".
+      if (!config["clientId"]) {
+        const { body, status } = fail(
+          "invalid_input",
+          "Graph 账号需要 clientId（在你自己的 Azure 应用注册里获取）",
+          400,
+        );
+        return c.json(body, status as 400);
+      }
+      if (!config["cachePath"] && options.dataDir) {
+        const safe = input.email.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const dir = join(options.dataDir, "graph-cache");
+        mkdirSync(dir, { recursive: true });
+        config["cachePath"] = join(dir, `${safe}.json`);
+      }
+    }
+
     const account = store.createAccount({
       provider: input.provider,
       label: input.label || input.email,
       email: input.email,
-      config: input.config ?? {},
+      config,
       secret: input.secret ?? "",
     });
     return c.json({ account: toView(account) }, 201);

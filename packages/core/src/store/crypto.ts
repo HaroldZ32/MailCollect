@@ -37,10 +37,15 @@ export function encryptSecret(key: Buffer, plaintext: string): string {
 }
 
 export function decryptSecret(key: Buffer, payload: string): string {
-  const [version, ivB64, tagB64, dataB64] = payload.split(":");
-  if (version !== "v1" || !ivB64 || !tagB64 || !dataB64) {
+  // An account created without a secret (Graph device-code accounts have none to
+  // paste) is stored as NULL; an all-empty payload must read back as "" rather
+  // than throwing, or every account listing would fail.
+  if (payload.length === 0) return "";
+  const [version, ivB64, tagB64, dataB64 = ""] = payload.split(":");
+  if (version !== "v1" || !ivB64 || !tagB64) {
     throw new Error("unsupported secret payload");
   }
+  if (dataB64.length === 0) return "";
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
   decipher.setAuthTag(Buffer.from(tagB64, "base64"));
   return Buffer.concat([

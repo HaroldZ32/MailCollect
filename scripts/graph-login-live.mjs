@@ -21,9 +21,30 @@ const api = async (path, init = {}) => {
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
-const accounts = (await api("/api/accounts")).body.items;
-const graph = accounts.find((a) => a.provider === "graph");
-check("存在一个 graph 账号", Boolean(graph));
+// Create a graph account through the real API: no secret to paste (device-code
+// flow), clientId required. This also pins the empty-secret fix (B2).
+const created = await api("/api/accounts", {
+  method: "POST",
+  body: JSON.stringify({
+    provider: "graph",
+    label: "Outlook 测试",
+    email: `graph-${Date.now()}@outlook.com`,
+    config: { clientId: "00000000-0000-0000-0000-000000000000", tenant: "common" },
+    secret: "",
+  }),
+});
+check("新建 graph 账号（空 secret）返回 201", created.status === 201, `status=${created.status} ${JSON.stringify(created.body)}`);
+
+const missingClient = await api("/api/accounts", {
+  method: "POST",
+  body: JSON.stringify({ provider: "graph", label: "坏账号", email: "bad@outlook.com", config: {}, secret: "" }),
+});
+check("缺 clientId 被 400 拦下", missingClient.status === 400, `status=${missingClient.status}`);
+
+const listed = await api("/api/accounts");
+check("列表不因空 secret 而 500", listed.status === 200, `status=${listed.status}`);
+const graph = listed.body.items.find((a) => a.id === created.body?.account?.id);
+check("新账号出现在列表里", Boolean(graph));
 if (!graph) process.exit(1);
 
 // Subscribe BEFORE triggering, otherwise the events can be missed.

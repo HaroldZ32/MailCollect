@@ -2041,6 +2041,12 @@ a {
   color: var(--text-tertiary);
 }
 
+.field-hint a {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .form-actions {
   display: flex;
   align-items: center;

@@ -23,7 +23,7 @@ import {
 import { formatDateTime, hueFor, initials } from "../lib/format";
 import { GlassCard } from "../components/GlassCard";
 import { Icon } from "../components/Icon";
-import type { ConnectionMode } from "../lib/useMailData";
+import type { ConnectionMode, SaveResult } from "../lib/useMailData";
 
 const TIMEZONES: readonly string[] = [
   "Asia/Shanghai",
@@ -127,8 +127,20 @@ const MODE_LABEL: Record<ConnectionMode, string> = {
   offline: "未连接",
 };
 
-function buildAccountConfig(provider: MailProvider, host: string, port: string, user: string, email: string): Record<string, string> {
-  if (provider === "graph") return {};
+function buildAccountConfig(
+  provider: MailProvider,
+  host: string,
+  port: string,
+  user: string,
+  email: string,
+  clientId: string,
+  tenant: string,
+): Record<string, string> {
+  if (provider === "graph") {
+    const config: Record<string, string> = { clientId: clientId.trim() };
+    if (tenant.trim() !== "") config["tenant"] = tenant.trim();
+    return config;
+  }
   const config: Record<string, string> = {
     host: host.trim(),
     user: user.trim() === "" ? email : user.trim(),
@@ -150,7 +162,7 @@ export interface SettingsPageProps {
   readonly accounts: readonly AccountView[];
   readonly llmConfigs: readonly LlmConfigView[];
   readonly onSaveProfile: (input: UpsertProfileInput) => Promise<boolean>;
-  readonly onAddAccount: (input: CreateAccountInput) => Promise<boolean>;
+  readonly onAddAccount: (input: CreateAccountInput) => Promise<SaveResult>;
   readonly onRemoveAccount: (accountId: string) => Promise<boolean>;
   readonly onVerifyAccount: (accountId: string) => Promise<VerifyAccountResponse>;
   readonly onSaveLlm: (input: LlmConfigInput) => Promise<boolean>;
@@ -197,6 +209,8 @@ export function SettingsPage({
   const [port, setPort] = useState(DEFAULT_PORT.imap);
   const [user, setUser] = useState("");
   const [secret, setSecret] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [tenant, setTenant] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [verifyBusyId, setVerifyBusyId] = useState<string | null>(null);
@@ -256,23 +270,32 @@ export function SettingsPage({
       setAccountError("请填写有效的邮箱地址");
       return;
     }
+    if (provider === "graph" && clientId.trim() === "") {
+      setAccountError("Graph 账号需要 clientId（在你自己的 Azure 应用注册里获取）");
+      return;
+    }
     setAccountError(null);
     setAccountBusy(true);
     void onAddAccount({
       provider,
       label: accountLabel.trim() === "" ? accountEmail.trim() : accountLabel.trim(),
       email: accountEmail.trim(),
-      config: buildAccountConfig(provider, host, port, user, accountEmail),
-      secret,
+      config: buildAccountConfig(provider, host, port, user, accountEmail, clientId, tenant),
+      secret: provider === "graph" ? "" : secret,
     })
-      .then((ok) => {
-        if (!ok) return;
+      .then((result) => {
+        if (!result.ok) {
+          setAccountError(result.message ?? "保存账号失败");
+          return;
+        }
         setAccountLabel("");
         setAccountEmail("");
         setHost("");
         setPort(DEFAULT_PORT.imap);
         setUser("");
         setSecret("");
+        setClientId("");
+        setTenant("");
         setShowAddAccount(false);
       })
       .finally(() => setAccountBusy(false));
@@ -608,6 +631,7 @@ export function SettingsPage({
                     const next = event.target.value as MailProvider;
                     setProvider(next);
                     setPort(DEFAULT_PORT[next]);
+                    setAccountError(null);
                   }}
                 >
                   <option value="imap">IMAP</option>
@@ -642,6 +666,49 @@ export function SettingsPage({
                   onChange={(event) => setAccountLabel(event.target.value)}
                 />
               </div>
+
+              {provider === "graph" ? (
+                <>
+                  <div className="form-row">
+                    <label className="field-label" htmlFor="account-client-id">
+                      Client ID（应用程序(客户端) ID）
+                    </label>
+                    <input
+                      id="account-client-id"
+                      className="input"
+                      value={clientId}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      onChange={(event) => setClientId(event.target.value)}
+                    />
+                    <span className="field-hint">
+                      在 Azure 门户 → 应用注册 → 你的应用里复制「应用程序(客户端) ID」；需要允许公共客户端流程。{" "}
+                      <a href="https://portal.azure.com" target="_blank" rel="noreferrer">
+                        打开 Azure 门户 ↗
+                      </a>
+                    </span>
+                  </div>
+                  <div className="form-row">
+                    <label className="field-label" htmlFor="account-tenant">
+                      租户 ID（可选）
+                    </label>
+                    <input
+                      id="account-tenant"
+                      className="input"
+                      value={tenant}
+                      placeholder="common"
+                      onChange={(event) => setTenant(event.target.value)}
+                    />
+                    <span className="field-hint">
+                      留空按 common 处理；单租户应用可填 Directory (tenant) ID。
+                    </span>
+                  </div>
+                  <div className="form-row form-row--full">
+                    <span className="field-hint">
+                      保存后在账号列表点「登录 Microsoft」，用设备码完成授权；这里不需要粘贴令牌。
+                    </span>
+                  </div>
+                </>
+              ) : null}
 
               {provider === "graph" ? null : (
                 <>
@@ -684,21 +751,23 @@ export function SettingsPage({
                 </>
               )}
 
-              <div className="form-row form-row--full">
-                <label className="field-label" htmlFor="account-secret">
-                  {provider === "graph" ? "刷新令牌 / 设备码结果" : "密码 / 应用专用密码"}
-                </label>
-                <input
-                  id="account-secret"
-                  className="input"
-                  type="password"
-                  value={secret}
-                  placeholder="只提交给服务端，保存后不回显"
-                  autoComplete="new-password"
-                  onChange={(event) => setSecret(event.target.value)}
-                />
-                <span className="field-hint">凭据由服务端 AES-256-GCM 加密落盘，接口只返回 hasSecret。</span>
-              </div>
+              {provider === "graph" ? null : (
+                <div className="form-row form-row--full">
+                  <label className="field-label" htmlFor="account-secret">
+                    密码 / 应用专用密码
+                  </label>
+                  <input
+                    id="account-secret"
+                    className="input"
+                    type="password"
+                    value={secret}
+                    placeholder="只提交给服务端，保存后不回显"
+                    autoComplete="new-password"
+                    onChange={(event) => setSecret(event.target.value)}
+                  />
+                  <span className="field-hint">凭据由服务端 AES-256-GCM 加密落盘，接口只返回 hasSecret。</span>
+                </div>
+              )}
             </div>
 
             {accountError === null ? null : (
@@ -713,7 +782,11 @@ export function SettingsPage({
                 <Icon name="plus" size={13} />
                 {accountBusy ? "保存中…" : "保存账号"}
               </button>
-              <span className="field-hint">保存后可以点「验证」测试连通性，验证失败不会删除账号。</span>
+              <span className="field-hint">
+                {provider === "graph"
+                  ? "保存后在账号列表点「登录 Microsoft」完成设备码授权；cachePath 由服务端自动推导。"
+                  : "保存后可以点「验证」测试连通性，验证失败不会删除账号。"}
+              </span>
             </div>
           </div>
         ) : null}

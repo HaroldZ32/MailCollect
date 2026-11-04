@@ -31,6 +31,11 @@ export interface ExtractProgress {
   readonly total: number;
 }
 
+export interface SaveResult {
+  readonly ok: boolean;
+  readonly message: string | null;
+}
+
 export type DeviceLoginPhase = "requesting" | "waiting" | "failed";
 
 export interface DeviceLoginState {
@@ -70,7 +75,7 @@ export interface MailData {
   readonly retryDeviceLogin: () => Promise<boolean>;
   readonly dismissDeviceLogin: () => void;
   readonly saveProfile: (input: UpsertProfileInput) => Promise<boolean>;
-  readonly addAccount: (input: CreateAccountInput) => Promise<boolean>;
+  readonly addAccount: (input: CreateAccountInput) => Promise<SaveResult>;
   readonly removeAccount: (accountId: string) => Promise<boolean>;
   readonly verifyAccount: (accountId: string) => Promise<VerifyAccountResponse>;
   readonly updateTask: (taskId: string, input: UpdateTaskInput) => Promise<boolean>;
@@ -573,7 +578,7 @@ export function useMailData(): MailData {
   );
 
   const addAccount = useCallback(
-    async (input: CreateAccountInput): Promise<boolean> => {
+    async (input: CreateAccountInput): Promise<SaveResult> => {
       if (mode === "demo") {
         const account: AccountView = {
           id: newId("acc-demo"),
@@ -587,17 +592,18 @@ export function useMailData(): MailData {
         };
         setAccounts((previous) => [...previous, account]);
         pushNotice("ok", "账号已添加（演示数据，仅本次会话）");
-        return true;
+        return { ok: true, message: null };
       }
-      if (mode !== "live") return false;
+      if (mode !== "live") {
+        return { ok: false, message: "当前没有连接服务端，无法保存账号" };
+      }
       try {
         const account = await api.accounts.create(input);
         setAccounts((previous) => [...previous, account]);
         pushNotice("ok", "账号已添加");
-        return true;
+        return { ok: true, message: null };
       } catch (caught) {
-        pushNotice("error", failureText(caught));
-        return false;
+        return { ok: false, message: failureText(caught) };
       }
     },
     [mode, pushNotice],

@@ -259,6 +259,21 @@ describe("http api", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("lists accounts that carry no secret at all (a real 500 regression)", async () => {
+    store.createAccount({
+      provider: "graph",
+      label: "Outlook",
+      email: "me@outlook.com",
+      config: { clientId: "abc", tenant: "common" },
+      secret: "",
+    });
+    const res = await call("/api/accounts");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Array<{ hasSecret: boolean }> };
+    expect(body.items).toHaveLength(2);
+    expect(body.items.some((item) => item.hasSecret)).toBe(true);
+  });
+
   it("serves a JSON 404 for unknown api paths", async () => {
     const res = await call("/api/does-not-exist");
     expect(res.status).toBe(404);

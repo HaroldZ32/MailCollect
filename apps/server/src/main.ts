@@ -91,7 +91,15 @@ const services: ServerServices = {
         });
         return;
       }
-      const result = await source.login();
+      // The callback MUST be passed here: the adapter always hands its own
+      // wrapper to the auth layer, which shadows the constructor-time callback.
+      // Guard the payload too — the adapter can invoke it before a code exists
+      // (e.g. MSAL rejects the client first), and an empty code would open a
+      // useless dialog in the UI.
+      const result = await source.login((notice) => {
+        if (!notice?.userCode || !notice.verificationUri) return;
+        emit({ type: "device-code", data: { accountId, ...notice } });
+      });
       emit({
         type: "device-login",
         data: { accountId, ok: result.ok, detail: result.detail },
@@ -236,6 +244,7 @@ const app = createApp({
   token,
   version: VERSION,
   uiDir,
+  dataDir,
   allowedOrigins: ["http://127.0.0.1:5173", "http://localhost:5173"],
 });
 

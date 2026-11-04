@@ -83,16 +83,21 @@ jobs:
         working-directory: apps/desktop
         run: npx electron-builder --${{ matrix.target }} --publish never
 
+      # GitHub 会把上传文件名里的空格换成点（MailCollect Setup.exe → MailCollect.Setup.exe），
+      # 所以校验和里也必须写改名后的文件名，否则 sha256sum -c 对不上。
       - name: Checksums
         shell: bash
         working-directory: apps/desktop/release
         run: |
           shopt -s nullglob
           files=(*.exe *.dmg *.AppImage)
-          if [ ${#files[@]} -gt 0 ]; then
-            sha256sum "${files[@]}" > "SHA256SUMS-${{ matrix.target }}.txt"
-            cat "SHA256SUMS-${{ matrix.target }}.txt"
-          fi
+          if [ ${#files[@]} -eq 0 ]; then echo "没有产物"; exit 1; fi
+          : > "SHA256SUMS-${{ matrix.target }}.txt"
+          for f in "${files[@]}"; do
+            sum=$(sha256sum "$f" | cut -d' ' -f1)
+            echo "$sum  ${f// /.}" >> "SHA256SUMS-${{ matrix.target }}.txt"
+          done
+          cat "SHA256SUMS-${{ matrix.target }}.txt"
 
       - uses: actions/upload-artifact@v4
         with:

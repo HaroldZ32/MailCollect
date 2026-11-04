@@ -30,3 +30,4 @@ apps/ui/.shots/
 .mpd/logs/
 .mpd/lsp/
 .mpd/project-init.json
+.codegraph/

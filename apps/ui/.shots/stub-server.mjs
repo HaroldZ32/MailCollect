@@ -70,11 +70,30 @@ const accountSeed = () => ({
   createdAt: now(),
 });
 
+const graphAccountSeed = () => ({
+  id: "acc-graph",
+  provider: "graph",
+  label: "Stub Outlook",
+  email: "outlook@example.com",
+  enabled: true,
+  hasSecret: true,
+  lastSyncAt: null,
+  createdAt: now(),
+});
+
 let profile = profileSeed();
 let tasks = [taskSeed()];
-const accounts = [accountSeed()];
+const accounts = [accountSeed(), graphAccountSeed()];
 const clients = new Set();
-const stats = { connections: 0, taskFetches: 0, emailFetches: 0, eventRequests: 0 };
+const stats = {
+  connections: 0,
+  taskFetches: 0,
+  emailFetches: 0,
+  eventRequests: 0,
+  accountsFetches: 0,
+  loginRequests: 0,
+  lastLoginAccountId: null,
+};
 
 const json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -149,6 +168,7 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { profile });
   }
   if (url.pathname === "/api/accounts" && req.method === "GET") {
+    stats.accountsFetches += 1;
     return json(res, 200, { items: accounts });
   }
   if (url.pathname === "/api/accounts" && req.method === "POST") {
@@ -159,6 +179,11 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname.startsWith("/api/accounts/") && req.method === "DELETE") {
     return json(res, 200, { ok: true });
+  }
+  if (url.pathname.startsWith("/api/accounts/") && url.pathname.endsWith("/login") && req.method === "POST") {
+    stats.loginRequests += 1;
+    stats.lastLoginAccountId = url.pathname.split("/").at(-2) ?? null;
+    return json(res, 202, { ok: true });
   }
   if (url.pathname.startsWith("/api/accounts/") && url.pathname.endsWith("/verify")) {
     return json(res, 200, { ok: true, detail: "桩服务：验证通过" });

@@ -247,6 +247,12 @@ export const api = {
       requestJson<VerifyAccountResponse>(`/accounts/${encodeURIComponent(accountId)}/verify`, {
         method: "POST",
       }),
+    /** Graph 设备码登录：202 立即返回，码与结果通过 SSE 推送。 */
+    login: async (accountId: string): Promise<void> => {
+      await requestJson<{ ok: boolean }>(`/accounts/${encodeURIComponent(accountId)}/login`, {
+        method: "POST",
+      });
+    },
   },
 
   emails: {

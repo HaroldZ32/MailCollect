@@ -9,8 +9,11 @@ import { makeCursor, readConfig, readConfigInt } from "./account.js";
 import { abortedError, isAbortError, toMailError } from "./errors.js";
 import { buildRawEmail, htmlToText } from "./message.js";
 import { pickHeaders } from "./headers.js";
-import type { FetchOptions, FetchResult, MailSource } from "./types.js";
+import type { DeviceCodeNotice, FetchOptions, FetchResult, MailSource } from "./types.js";
 import { MailError } from "./types.js";
+
+// 定义已经上移到 types.ts（MailSource.login 需要它），这里保留同名再导出。
+export type { DeviceCodeNotice } from "./types.js";
 
 /**
  * Microsoft Graph 适配器。
@@ -104,20 +107,14 @@ export type GraphFetch = (
   init: { readonly headers: Readonly<Record<string, string>>; readonly signal?: AbortSignal },
 ) => Promise<GraphResponse>;
 
-/** 设备码提示：由调用方展示给用户（适配器不会把它写进日志）。 */
-export interface DeviceCodeNotice {
-  readonly userCode: string;
-  readonly verificationUri: string;
-  readonly message: string;
-  readonly expiresInSeconds: number;
-}
-
 /** 令牌获取抽象：生产走 MSAL，测试可注入假实现。 */
 export interface GraphAuth {
   /** 静默取令牌；缓存失效时抛 MailError("auth")，不阻塞等待用户。 */
   getAccessToken(): Promise<string>;
-  /** 设备码登录：会阻塞等待用户在浏览器完成。 */
-  login(): Promise<void>;
+  /** 设备码登录：会阻塞等待用户在浏览器完成；回调覆盖构造时提供的那个。 */
+  login(onDeviceCode?: (notice: DeviceCodeNotice) => void): Promise<void>;
+  /** 最近一次设备码提示；注入实现可以不提供。 */
+  readonly lastDeviceCodeNotice?: DeviceCodeNotice | null;
 }
 
 export interface GraphSourceOptions {
@@ -229,7 +226,8 @@ export class MsalDeviceCodeAuth implements GraphAuth {
     }
   }
 
-  async login(): Promise<void> {
+  async login(onDeviceCode?: (notice: DeviceCodeNotice) => void): Promise<void> {
+    const notify = onDeviceCode ?? this.#onDeviceCode;
     const result = await this.#pca.acquireTokenByDeviceCode({
       scopes: [...this.#scopes],
       deviceCodeCallback: (response) => {
@@ -240,7 +238,7 @@ export class MsalDeviceCodeAuth implements GraphAuth {
           expiresInSeconds: response.expiresIn,
         };
         this.#lastNotice = notice;
-        this.#onDeviceCode?.(notice);
+        notify?.(notice);
       },
     });
     if (result === null) throw new MailError("auth", "设备码登录未完成或已超时", false);
@@ -307,6 +305,7 @@ export class GraphMailSource implements MailSource {
   readonly #auth: GraphAuth;
   readonly #fetch: GraphFetch;
   #closed = false;
+  #lastNotice: DeviceCodeNotice | null = null;
 
   constructor(account: MailSourceAccount, options: GraphSourceOptions = {}) {
     this.#account = account;
@@ -317,17 +316,30 @@ export class GraphMailSource implements MailSource {
   }
 
   /**
-   * 设备码登录入口（`MailSource` 接口之外的用户动作）。
-   * 设备码提示经 `onDeviceCode` 回调交给调用方；工厂创建的实例可从 MSAL 实现的
-   * `lastDeviceCodeNotice` 读取（服务层应在 verify() 之前取走并展示）。
+   * 设备码登录（`MailSource.login`）。
+   *
+   * 设备码提示走两条通道：本次调用传入的 `onDeviceCode`，以及实例上的
+   * `lastDeviceCodeNotice`。两条通道都只是「给用户看的一句话」，不落日志。
    */
-  async login(): Promise<{ ok: boolean; detail: string }> {
+  async login(onDeviceCode?: (notice: DeviceCodeNotice) => void): Promise<{ ok: boolean; detail: string }> {
+    if (this.#closed) return { ok: false, detail: "protocol: Graph 适配器已关闭" };
+    const notify = (notice: DeviceCodeNotice): void => {
+      this.#lastNotice = notice;
+      onDeviceCode?.(notice);
+    };
     try {
-      await this.#auth.login();
+      await this.#auth.login(notify);
     } catch (err) {
       return this.#failure(err);
     }
+    // MSAL 实现自己也会记录提示；注入实现不回调时，从这里补齐透出。
+    this.#lastNotice ??= this.#auth.lastDeviceCodeNotice ?? null;
     return this.verify();
+  }
+
+  /** 最近一次设备码提示；未登录或注入的 auth 不提供时为 null。 */
+  get lastDeviceCodeNotice(): DeviceCodeNotice | null {
+    return this.#lastNotice ?? this.#auth.lastDeviceCodeNotice ?? null;
   }
 
   async verify(): Promise<{ ok: boolean; detail: string }> {

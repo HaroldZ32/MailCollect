@@ -6,6 +6,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Icon } from "./components/Icon";
 import { GlassCard } from "./components/GlassCard";
 import { EmptyState } from "./components/EmptyState";
+import { DeviceCodeDialog } from "./components/DeviceCodeDialog";
 import { InboxPage } from "./pages/InboxPage";
 import { TasksPage } from "./pages/TasksPage";
 import { TimelinePage } from "./pages/TimelinePage";
@@ -64,6 +65,10 @@ export function App() {
     data.extractProgress === null
       ? null
       : `抽取 ${data.extractProgress.done}/${data.extractProgress.total}`;
+  const deviceLogin = data.deviceLogin;
+  const deviceLoginAccount =
+    deviceLogin === null ? null : data.accounts.find((account) => account.id === deviceLogin.accountId) ?? null;
+  const deviceLoginLabel = deviceLoginAccount?.label ?? deviceLogin?.accountId ?? "";
 
   if (data.mode === "loading") {
     return (
@@ -215,11 +220,25 @@ export function App() {
                 onRemoveLlm={data.removeLlmConfig}
                 onTestLlm={data.testLlm}
                 onRetry={data.retry}
+                canLoginDevice={data.canLoginDevice}
+                graphLoggedIn={data.graphLoggedIn}
+                onLoginAccount={data.loginAccount}
               />
             ) : null}
           </div>
         </div>
       </main>
+
+      {deviceLogin === null ? null : (
+        <DeviceCodeDialog
+          state={deviceLogin}
+          accountLabel={deviceLoginLabel}
+          onClose={data.dismissDeviceLogin}
+          onRetry={() => {
+            void data.retryDeviceLogin();
+          }}
+        />
+      )}
 
       {data.notice === null ? null : (
         <div

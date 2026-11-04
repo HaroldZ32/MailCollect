@@ -15,6 +15,7 @@ let app: ReturnType<typeof createApp>;
 
 const services: ServerServices = {
   verifyAccount: vi.fn(async () => ({ ok: true, detail: "OK" })),
+  loginAccount: vi.fn(async () => undefined),
   syncAccount: vi.fn(async () => undefined),
   extract: vi.fn(async () => ({ done: 0, total: 0 })),
   testLlm: vi.fn(async () => ({ ok: true, latencyMs: 12, detail: "pong" })),
@@ -246,6 +247,16 @@ describe("http api", () => {
       body: JSON.stringify({ accountId: "nope" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("accepts an interactive login request and answers 202 (code arrives over SSE)", async () => {
+    const res = await call(`/api/accounts/${accountId}/login`, { method: "POST" });
+    expect(res.status).toBe(202);
+    await Promise.resolve();
+    expect(services.loginAccount).toHaveBeenCalledWith(accountId, expect.any(Function));
+
+    const missing = await call("/api/accounts/nope/login", { method: "POST" });
+    expect(missing.status).toBe(404);
   });
 
   it("serves a JSON 404 for unknown api paths", async () => {

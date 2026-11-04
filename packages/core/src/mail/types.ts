@@ -39,6 +39,17 @@ export interface FetchResult {
 }
 
 /**
+ * Device-code prompt the adapter must surface to the user.
+ * It is not a credential, but it must never be written to a log.
+ */
+export interface DeviceCodeNotice {
+  readonly userCode: string;
+  readonly verificationUri: string;
+  readonly message: string;
+  readonly expiresInSeconds: number;
+}
+
+/**
  * One mailbox, one adapter. Implementations live in this directory:
  * `imap.ts`, `pop3.ts`, `graph.ts`. FROZEN CONTRACT — do not widen.
  */
@@ -53,6 +64,13 @@ export interface MailSource {
    * the provider has no push capability (POP3).
    */
   watch?(onNew: () => void): Promise<(() => void) | null>;
+  /**
+   * Optional interactive login (device-code flow). Only adapters that need a
+   * user gesture implement it (Microsoft Graph); IMAP/POP3 leave it undefined.
+   * The prompt goes to `onDeviceCode` and to the adapter's own
+   * `lastDeviceCodeNotice` accessor, and is never logged.
+   */
+  login?(onDeviceCode?: (notice: DeviceCodeNotice) => void): Promise<{ ok: boolean; detail: string }>;
   close(): Promise<void>;
 }
 

@@ -176,6 +176,30 @@ export function createApp(options: AppOptions): Hono {
     return c.json(result, result.ok ? 200 : 400);
   });
 
+  /**
+   * Interactive login (Microsoft Graph device code). Returns 202 immediately —
+   * the code and the outcome are pushed over SSE because the user has to walk to
+   * a browser and type it.
+   */
+  app.post(`${API_PREFIX}/accounts/:id/login`, async (c) => {
+    const accountId = c.req.param("id");
+    if (!store.getAccountWithSecret(accountId)) {
+      const { body, status } = fail("not_found", "账号不存在", 404);
+      return c.json(body, status as 404);
+    }
+    void services.loginAccount(accountId, emit).catch((error: unknown) => {
+      emit({
+        type: "device-login",
+        data: {
+          accountId,
+          ok: false,
+          detail: error instanceof Error ? error.message : "登录失败",
+        },
+      });
+    });
+    return c.json({ ok: true }, 202);
+  });
+
   /* --------------------------------- emails --------------------------------- */
 
   app.get(`${API_PREFIX}/emails`, (c) => {

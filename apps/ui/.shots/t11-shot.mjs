@@ -1,0 +1,21 @@
+import { chromium } from "playwright";
+const STUB = "http://127.0.0.1:8787";
+const TOKEN = "sse-test-token";
+const emit = (type, data) =>
+  fetch(`${STUB}/control/emit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type, data }) }).then((r) => r.json());
+const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+await context.addInitScript((token) => { window.localStorage.setItem("mailcollect.token", token); }, TOKEN);
+const page = await context.newPage();
+await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.getByText("已连接服务").first().waitFor({ timeout: 20000 });
+await page.waitForTimeout(900);
+await page.locator(".nav-item").filter({ hasText: "设置" }).click();
+await page.waitForTimeout(500);
+await page.locator(".account-row").filter({ hasText: "Stub Outlook" }).locator("button").filter({ hasText: "登录 Microsoft" }).click();
+await page.locator(".dialog-card").waitFor({ timeout: 5000 });
+await emit("device-code", { accountId: "acc-graph", userCode: "K7QP-2XWD", verificationUri: "https://microsoft.com/devicelogin", message: "打开验证页面并输入下面的代码，完成后这里会自动刷新。", expiresInSeconds: 900 });
+await page.waitForTimeout(700);
+await page.screenshot({ path: "apps/ui/.shots/12-device-code.png" });
+console.log("SHOT 12-device-code");
+await browser.close();

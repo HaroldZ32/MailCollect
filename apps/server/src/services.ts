@@ -7,6 +7,11 @@ import type { ServerEvent } from "@mailcollect/shared";
  */
 export interface ServerServices {
   verifyAccount(accountId: string): Promise<{ ok: boolean; detail: string }>;
+  /**
+   * Interactive login (Microsoft Graph device code). Returns immediately; the
+   * device code and the outcome arrive as SSE events.
+   */
+  loginAccount(accountId: string, emit: (event: ServerEvent) => void): Promise<void>;
   syncAccount(
     accountId: string,
     options: { full: boolean },

@@ -158,6 +158,9 @@ export interface SettingsPageProps {
   readonly onRemoveLlm: (configId: string) => Promise<boolean>;
   readonly onTestLlm: (input: LlmTestInput) => Promise<LlmTestResponse>;
   readonly onRetry: () => void;
+  readonly canLoginDevice: boolean;
+  readonly graphLoggedIn: Readonly<Record<string, boolean>>;
+  readonly onLoginAccount: (accountId: string) => Promise<boolean>;
 }
 
 export function SettingsPage({
@@ -174,6 +177,9 @@ export function SettingsPage({
   onRemoveLlm,
   onTestLlm,
   onRetry,
+  canLoginDevice,
+  graphLoggedIn,
+  onLoginAccount,
 }: SettingsPageProps) {
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
   const [aliases, setAliases] = useState<readonly string[]>(profile?.aliases ?? []);
@@ -715,7 +721,13 @@ export function SettingsPage({
         {accounts.length === 0 ? (
           <div className="settings-note">还没有邮箱账号。添加一个 IMAP / POP3 / Graph 账号后即可同步与抽取。</div>
         ) : (
-          <div className="account-list">
+          <>
+            {accounts.some((account) => account.provider === "graph") && !canLoginDevice ? (
+              <div className="settings-note">
+                Microsoft 设备码登录需要服务端连接与实时事件流；当前是演示/未连接状态，点击「登录 Microsoft」会提示需要连接服务端。
+              </div>
+            ) : null}
+            <div className="account-list">
             {accounts.map((account) => {
               const result = verifyResults[account.id];
               return (
@@ -731,6 +743,9 @@ export function SettingsPage({
                       <span className={account.hasSecret ? "chip chip--success" : "chip chip--warning"}>
                         {account.hasSecret ? "已保存凭据" : "缺少凭据"}
                       </span>
+                      {account.provider === "graph" && graphLoggedIn[account.id] === true ? (
+                        <span className="chip chip--accent">已登录</span>
+                      ) : null}
                     </div>
                     <div className="account-meta">
                       {account.email} · 上次同步 {account.lastSyncAt === null ? "从未" : formatDateTime(account.lastSyncAt)}
@@ -743,14 +758,28 @@ export function SettingsPage({
                     )}
                   </div>
                   <div className="account-actions">
-                    <button
-                      type="button"
-                      className="btn btn--sm"
-                      disabled={verifyBusyId === account.id}
-                      onClick={() => verifyAccount(account.id)}
-                    >
-                      {verifyBusyId === account.id ? "验证中…" : "验证"}
-                    </button>
+                    {account.provider === "graph" ? (
+                      <button
+                        type="button"
+                        className="btn btn--sm"
+                        title={canLoginDevice ? "使用 Microsoft 设备码登录" : "需要连接服务端与实时事件流"}
+                        onClick={() => {
+                          void onLoginAccount(account.id);
+                        }}
+                      >
+                        <Icon name="key" size={13} />
+                        登录 Microsoft
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--sm"
+                        disabled={verifyBusyId === account.id}
+                        onClick={() => verifyAccount(account.id)}
+                      >
+                        {verifyBusyId === account.id ? "验证中…" : "验证"}
+                      </button>
+                    )}
                     <button type="button" className="btn btn--sm btn--danger" onClick={() => removeAccount(account)}>
                       <Icon name="trash" size={13} />
                       移除
@@ -759,7 +788,8 @@ export function SettingsPage({
                 </div>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </GlassCard>
 

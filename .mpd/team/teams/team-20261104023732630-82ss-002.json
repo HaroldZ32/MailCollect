@@ -5,7 +5,7 @@
   "description": "MailCollect MVP：AI 邮件待办抽取 + 群发分流 + 甘特图，桌面优先、单代码库全端。按 docs/requirements.md 与 .mpd/plans/001-mvp.md 的冻结契约并行开发。",
   "leadSessionId": "ea23238e-df2c-48a4-b9da-5b1f9e465aad",
   "planId": "plan-20261104023149519-82ss-001",
-  "phase": "idle",
+  "phase": "active",
   "createdAt": "2026-11-04T02:37:32.630Z",
   "members": [
     {
@@ -33,7 +33,7 @@
       "id": "M3",
       "name": "ui-engineer",
       "description": "Senior Engineer — 界面泳道：圆角毛玻璃浅蓝设计系统 + 收件箱/待办/甘特/设置",
-      "status": "inactive",
+      "status": "running",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -222,9 +222,45 @@
       "attempt": 1,
       "note": "候选过滤统一为 owner !== \"other\"，everyone 候选恢复可见可操作（统计/侧栏徽标/分区计数一致）；other 仍不打扰。审计全链路 owner 判断统一。tsc/build exit 0；注入验证 18/18 PASS（everyone 可见+计数+1+可加入，other 不可见+计数不变，时间线 everyone 显示/other 隐藏）；T7 21/21 与演示回归全 PASS。",
       "finishedAt": "2026-11-04T03:42:14.591Z"
+    },
+    {
+      "id": "T10",
+      "subject": "Graph 设备码：工厂透传 options + GraphMailSource.login()/lastDeviceCodeNotice",
+      "description": "这是 T4/T8 两轮评审都挂账的最后一块 R2 缺口：Graph 适配器已实现但交互式登录不可达（工厂单参不传 onDeviceCode、GraphMailSource 无 lastDeviceCodeNotice、无 login 对外暴露）。范围：packages/core/src/mail/**（**captain 特准**本轮修改 types.ts 做加法，其他冻结文件不动）。\n\n必做三件事：\n\n1. `types.ts` 给 `MailSource` 加一个**可选**方法（纯加法，不破坏现有实现）：\n   ```ts\n   login?(onDeviceCode?: (notice: DeviceCodeNotice) => void): Promise<{ ok: boolean; detail: string }>;\n   ```\n   DeviceCodeNotice 目前定义在 graph.ts，请把它（及其类型依赖）提到 types.ts 或一个不引起的子模块，并保持 `@mailcollect/core/mail` 的现有导出名不变。\n\n2. `graph.ts`：给 `GraphMailSource` 实现 `login()`（委托 `#auth.login()` 并把 device code 提示经参数与 `this.#lastNotice` 两条通道送出），并补上 `get lastDeviceCodeNotice()` 访问器（把 `#auth` 上的同名 getter 透出来）。\n\n3. `index.ts`：`createMailSource(account, options: GraphSourceOptions = {})` 增加**可选第二参**并透传给 `new GraphMailSource(account, options)`；IMAP/POP3 分支忽略它。保持单参调用完全兼容（`mailSourceFactory` 仍然是单参形状），保留现有导出。\n\n测试（用注入的假 auth/fetch，不要真连微软）：\n- `createMailSource(graphAccount).login` 是个函数；`createMailSource(imapAccount).login` 是 undefined。\n- `new GraphMailSource(account, { auth: fakeAuth })` 的 `login()` 会调用 fakeAuth 并返回其结果。\n- `lastDeviceCodeNotice` 初始为 null，回调触发后可读到。\n\n验收：`pnpm --filter @mailcollect/core exec tsc --noEmit` 与 `test` 均 exit 0，贴原始输出。",
+      "kind": "work",
+      "status": "completed",
+      "blockedBy": [],
+      "writeScopes": [
+        "packages/core/src/mail/"
+      ],
+      "createdAt": "2026-11-04T03:48:15.819Z",
+      "updatedAt": "2026-11-04T03:52:04.487Z",
+      "revision": 4,
+      "owner": "4c7adb2a-9cca-4a86-bc69-1e56a10806a3",
+      "startedAt": "2026-11-04T03:48:23.342Z",
+      "attempt": 1,
+      "note": "MailSource.login? + DeviceCodeNotice 上移 types.ts；GraphMailSource.login(onDeviceCode?) 双通道 + lastDeviceCodeNotice getter；createMailSource 第二参透传。core tsc exit0 / 146 tests exit0；server tsc exit0（消费方契约通过）。",
+      "finishedAt": "2026-11-04T03:52:04.487Z"
+    },
+    {
+      "id": "T11",
+      "subject": "Graph 设备码登录对话框 + SSE 事件消费",
+      "description": "让 Outlook/Microsoft Graph 账号真的能登录。服务端契约（captain 已在 packs/shared/src/api.ts 里定好，服务端路由也在同步实现）：\n\n- `POST /api/accounts/:id/login` → 202 `{ ok: true }`，立即返回，后台开始设备码流程\n- SSE 事件 `device-code`，data = `{ accountId, userCode, verificationUri, message, expiresInSeconds }`\n- SSE 事件 `device-login`，data = `{ accountId, ok, detail }`\n\nUI 要做：\n1. 账号列表里 `provider === \"graph\"` 的账号，按钮文案从「验证」改成「登录 Microsoft」（IMAP/POP3 仍叫「验证」，走原来的 /verify）。\n2. 点它 → POST /login → 弹出设备码对话框：大字等你输入 `userCode`、可点击/可复制的 `verificationUri`、到期倒计时（expiresInSeconds）、一句「已自动等待，完成后会自己刷新」。\n3. 收到 `device-login` → 关对话框；成功就刷新账号列表并把该账号标成「已登录」，失败则把 detail 显示在对话框里允许重试。\n4. 超时/关闭对话框时不要泄漏定时器；重新点击可以重新发起。\n5. 演示模式或 SSE 未连接时，按钮给一个明确的「需要连接服务端」提示，不要假装成功。\n\n验收：`pnpm --filter @mailcollect/ui exec tsc --noEmit` 与 `build` 均 exit 0；用桩服务模拟 device-code + device-login 两个事件，贴出 Playwright 验证结果（要求至少：弹窗出现、码可见、成功事件后关闭并刷新、失败事件后展示错误不关闭）。",
+      "kind": "work",
+      "status": "in_progress",
+      "blockedBy": [],
+      "writeScopes": [
+        "apps/ui/"
+      ],
+      "createdAt": "2026-11-04T03:48:21.152Z",
+      "updatedAt": "2026-11-04T03:49:03.047Z",
+      "revision": 3,
+      "owner": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+      "startedAt": "2026-11-04T03:48:23.562Z",
+      "attempt": 1
     }
   ],
   "nextMemberNumber": 5,
-  "nextTaskNumber": 10,
+  "nextTaskNumber": 12,
   "approvedAt": "2026-11-04T02:37:32.961Z"
 }

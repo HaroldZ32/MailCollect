@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GraphFetch, GraphResponse } from "./graph.js";
+import type { DeviceCodeNotice, GraphFetch, GraphResponse } from "./graph.js";
 import { GraphMailSource } from "./graph.js";
 import { makeAccount } from "./test-support.js";
 import { MailError } from "./types.js";
@@ -242,6 +242,66 @@ describe("GraphMailSource", () => {
     await expect(source.login()).resolves.toEqual({ ok: true, detail: "Graph 已连接：user@example.com" });
     expect(loginCalls).toBe(1);
     expect(tokenCalls).toBe(1);
+  });
+
+  it("login() 把设备码提示同时送到参数回调与 lastDeviceCodeNotice", async () => {
+    const notice: DeviceCodeNotice = {
+      userCode: "ABCD-EFGH",
+      verificationUri: "https://microsoft.com/devicelogin",
+      message: "请访问 https://microsoft.com/devicelogin 并输入代码 ABCD-EFGH",
+      expiresInSeconds: 900,
+    };
+    const received: DeviceCodeNotice[] = [];
+    const source = new GraphMailSource(
+      makeAccount("graph", {
+        clientId: "11111111-1111-1111-1111-111111111111",
+        cachePath: "/tmp/mailcollect-test-token.json",
+      }),
+      {
+        auth: {
+          getAccessToken: async () => "token",
+          login: async (onDeviceCode) => {
+            onDeviceCode?.(notice);
+          },
+        },
+        fetch: async () => response({ value: [] }),
+      },
+    );
+
+    // 登录前没有任何提示
+    expect(source.lastDeviceCodeNotice).toBeNull();
+
+    await expect(source.login((item) => received.push(item))).resolves.toEqual({
+      ok: true,
+      detail: "Graph 已连接：user@example.com",
+    });
+
+    expect(received).toEqual([notice]);
+    expect(source.lastDeviceCodeNotice).toEqual(notice);
+  });
+
+  it("lastDeviceCodeNotice 会透出 auth 实现的同名 getter", () => {
+    const notice: DeviceCodeNotice = {
+      userCode: "WXYZ-1234",
+      verificationUri: "https://microsoft.com/devicelogin",
+      message: "请访问 https://microsoft.com/devicelogin 并输入代码 WXYZ-1234",
+      expiresInSeconds: 900,
+    };
+    const source = new GraphMailSource(
+      makeAccount("graph", {
+        clientId: "11111111-1111-1111-1111-111111111111",
+        cachePath: "/tmp/mailcollect-test-token.json",
+      }),
+      {
+        auth: {
+          getAccessToken: async () => "token",
+          login: async () => undefined,
+          lastDeviceCodeNotice: notice,
+        },
+      },
+    );
+
+    expect(source.lastDeviceCodeNotice).toEqual(notice);
   });
 
   it("拒绝把 Bearer 令牌发往非配置端点的游标 URL", async () => {

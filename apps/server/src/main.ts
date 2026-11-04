@@ -65,6 +65,42 @@ const services: ServerServices = {
     }
   },
 
+  async loginAccount(accountId, emit) {
+    const loaded = store.getAccountWithSecret(accountId);
+    if (!loaded) throw new Error("账号不存在");
+
+    const source = createMailSource(
+      {
+        id: loaded.account.id,
+        provider: loaded.account.provider,
+        email: loaded.account.email,
+        config: loaded.account.config,
+        secret: loaded.secret,
+      },
+      {
+        onDeviceCode: (notice) =>
+          emit({ type: "device-code", data: { accountId, ...notice } }),
+      },
+    );
+
+    try {
+      if (typeof source.login !== "function") {
+        emit({
+          type: "device-login",
+          data: { accountId, ok: false, detail: "该邮箱类型不支持交互式登录，请用「验证」" },
+        });
+        return;
+      }
+      const result = await source.login();
+      emit({
+        type: "device-login",
+        data: { accountId, ok: result.ok, detail: result.detail },
+      });
+    } finally {
+      await source.close();
+    }
+  },
+
   async syncAccount(accountId, options, emit) {
     const loaded = store.getAccountWithSecret(accountId);
     if (!loaded) throw new Error("账号不存在");

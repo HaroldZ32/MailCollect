@@ -31,6 +31,19 @@ export interface ExtractProgress {
   readonly total: number;
 }
 
+export type DeviceLoginPhase = "requesting" | "waiting" | "failed";
+
+export interface DeviceLoginState {
+  readonly accountId: string;
+  readonly phase: DeviceLoginPhase;
+  readonly userCode: string | null;
+  readonly verificationUri: string | null;
+  readonly message: string | null;
+  readonly expiresInSeconds: number;
+  readonly startedAt: number;
+  readonly error: string | null;
+}
+
 export interface MailData {
   readonly mode: ConnectionMode;
   readonly error: string | null;
@@ -39,6 +52,10 @@ export interface MailData {
   readonly extractProgress: ExtractProgress | null;
   readonly syncProgress: SyncProgress | null;
   readonly resyncToken: number;
+  readonly deviceLogin: DeviceLoginState | null;
+  readonly graphLoggedIn: Readonly<Record<string, boolean>>;
+  readonly streamConnected: boolean;
+  readonly canLoginDevice: boolean;
   readonly profile: UserProfile | null;
   readonly accounts: readonly AccountView[];
   readonly tasks: readonly Task[];
@@ -49,6 +66,9 @@ export interface MailData {
   readonly refresh: () => void;
   readonly dismissNotice: () => void;
   readonly dismissStreamError: () => void;
+  readonly loginAccount: (accountId: string) => Promise<boolean>;
+  readonly retryDeviceLogin: () => Promise<boolean>;
+  readonly dismissDeviceLogin: () => void;
   readonly saveProfile: (input: UpsertProfileInput) => Promise<boolean>;
   readonly addAccount: (input: CreateAccountInput) => Promise<boolean>;
   readonly removeAccount: (accountId: string) => Promise<boolean>;
@@ -200,6 +220,36 @@ function isSyncProgress(value: unknown): value is SyncProgress {
   );
 }
 
+function isDeviceCodePayload(value: unknown): value is {
+  readonly accountId: string;
+  readonly userCode: string;
+  readonly verificationUri: string;
+  readonly message: string;
+  readonly expiresInSeconds: number;
+} {
+  return (
+    isRecord(value) &&
+    typeof value["accountId"] === "string" &&
+    typeof value["userCode"] === "string" &&
+    typeof value["verificationUri"] === "string" &&
+    typeof value["message"] === "string" &&
+    typeof value["expiresInSeconds"] === "number"
+  );
+}
+
+function isDeviceLoginPayload(value: unknown): value is {
+  readonly accountId: string;
+  readonly ok: boolean;
+  readonly detail: string;
+} {
+  return (
+    isRecord(value) &&
+    typeof value["accountId"] === "string" &&
+    typeof value["ok"] === "boolean" &&
+    typeof value["detail"] === "string"
+  );
+}
+
 function parseEventData(event: MessageEvent): unknown {
   const raw: unknown = event.data;
   if (typeof raw !== "string" || raw.trim() === "") return null;
@@ -229,7 +279,11 @@ export function useMailData(): MailData {
   const [extractProgress, setExtractProgress] = useState<ExtractProgress | null>(null);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [resyncToken, setResyncToken] = useState(0);
+  const [deviceLogin, setDeviceLogin] = useState<DeviceLoginState | null>(null);
+  const [graphLoggedIn, setGraphLoggedIn] = useState<Readonly<Record<string, boolean>>>({});
+  const [streamConnected, setStreamConnected] = useState(false);
   const streamConnectedRef = useRef(false);
+  const deviceLoginAccountRef = useRef<string | null>(null);
 
   const counts = useMemo(() => deriveCounts(tasks), [tasks]);
 
@@ -284,6 +338,56 @@ export function useMailData(): MailData {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  const reloadAccounts = useCallback(async (): Promise<void> => {
+    try {
+      setAccounts(await api.accounts.list());
+    } catch (caught) {
+      if (isApiError(caught) && (caught.code === "network" || caught.code === "unauthorized")) return;
+      pushNotice("error", failureText(caught));
+    }
+  }, [pushNotice]);
+
+  const loginAccount = useCallback(
+    async (accountId: string): Promise<boolean> => {
+      if (mode !== "live" || !streamConnected) {
+        pushNotice("error", "需要连接服务端并保持实时连接，才能登录 Microsoft 账号");
+        return false;
+      }
+      setDeviceLogin({
+        accountId,
+        phase: "requesting",
+        userCode: null,
+        verificationUri: null,
+        message: null,
+        expiresInSeconds: 0,
+        startedAt: Date.now(),
+        error: null,
+      });
+      deviceLoginAccountRef.current = accountId;
+      try {
+        await api.accounts.login(accountId);
+        return true;
+      } catch (caught) {
+        deviceLoginAccountRef.current = null;
+        setDeviceLogin(null);
+        pushNotice("error", failureText(caught));
+        return false;
+      }
+    },
+    [mode, pushNotice, streamConnected],
+  );
+
+  const dismissDeviceLogin = useCallback(() => {
+    deviceLoginAccountRef.current = null;
+    setDeviceLogin(null);
+  }, []);
+
+  const retryDeviceLogin = useCallback(async (): Promise<boolean> => {
+    const accountId = deviceLoginAccountRef.current;
+    if (accountId === null) return false;
+    return loginAccount(accountId);
+  }, [loginAccount]);
+
   const reloadTasks = useCallback(async (): Promise<void> => {
     try {
       const response = await api.tasks.list();
@@ -317,6 +421,7 @@ export function useMailData(): MailData {
       next.addEventListener("open", () => {
         if (disposed) return;
         retryDelay = 1000;
+        setStreamConnected(true);
         setStreamError(null);
         if (streamConnectedRef.current) {
           void reloadTasks();
@@ -356,6 +461,43 @@ export function useMailData(): MailData {
         setSyncProgress(payload);
       }));
 
+      next.addEventListener("device-code", onMessage((payload) => {
+        if (!isDeviceCodePayload(payload)) return;
+        if (deviceLoginAccountRef.current !== payload.accountId) return;
+        setDeviceLogin({
+          accountId: payload.accountId,
+          phase: "waiting",
+          userCode: payload.userCode,
+          verificationUri: payload.verificationUri,
+          message: payload.message,
+          expiresInSeconds: payload.expiresInSeconds,
+          startedAt: Date.now(),
+          error: null,
+        });
+      }));
+
+      next.addEventListener("device-login", onMessage((payload) => {
+        if (!isDeviceLoginPayload(payload)) return;
+        const active = deviceLoginAccountRef.current === payload.accountId;
+        if (payload.ok) {
+          setGraphLoggedIn((previous) => ({ ...previous, [payload.accountId]: true }));
+          if (active) {
+            deviceLoginAccountRef.current = null;
+            setDeviceLogin(null);
+          }
+          void reloadAccounts();
+          pushNotice("ok", payload.detail.trim() === "" ? "Microsoft 登录成功" : payload.detail);
+          return;
+        }
+        if (active) {
+          setDeviceLogin((previous) =>
+            previous === null ? null : { ...previous, phase: "failed", error: payload.detail },
+          );
+          return;
+        }
+        pushNotice("error", `Microsoft 登录失败：${payload.detail}`);
+      }));
+
       next.addEventListener("error", (event: Event) => {
         if (disposed) return;
         if (event instanceof MessageEvent) {
@@ -364,6 +506,7 @@ export function useMailData(): MailData {
         }
         source?.close();
         source = null;
+        setStreamConnected(false);
         setStreamError("实时连接已断开，正在重连…");
         retryTimer = window.setTimeout(connect, retryDelay);
         retryDelay = Math.min(retryDelay * 2, 30_000);
@@ -374,10 +517,11 @@ export function useMailData(): MailData {
 
     return () => {
       disposed = true;
+      setStreamConnected(false);
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       source?.close();
     };
-  }, [mode, reloadTasks]);
+  }, [mode, reloadAccounts, reloadTasks, pushNotice]);
 
   const retry = useCallback(() => {
     void bootstrap();
@@ -694,6 +838,10 @@ export function useMailData(): MailData {
     extractProgress,
     syncProgress,
     resyncToken,
+    deviceLogin,
+    graphLoggedIn,
+    streamConnected,
+    canLoginDevice: mode === "live" && streamConnected,
     profile,
     accounts,
     tasks,
@@ -704,6 +852,9 @@ export function useMailData(): MailData {
     refresh,
     dismissNotice,
     dismissStreamError,
+    loginAccount,
+    retryDeviceLogin,
+    dismissDeviceLogin,
     saveProfile,
     addAccount,
     removeAccount,

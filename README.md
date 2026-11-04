@@ -97,3 +97,11 @@ npm run dist:win     # 产出 apps/desktop/release/MailCollect Setup 0.1.0.exe
 - Windows：`%APPDATA%\MailCollect\data\`（SQLite + `secret.key` + Graph token 缓存）
 - macOS：`~/Library/Application Support/MailCollect/data/`
 - Linux：`~/.config/MailCollect/data/`
+
+## 许可证
+
+本仓库采用 **GPL-3.0**（见 `LICENSE`，与 GitHub 仓库创建时选择的许可证一致）。
+
+依赖许可证均与之兼容：React / dhtmlx-gantt Community / imapflow / chrono-node 为 MIT，
+Vercel AI SDK 与 Hono 为 Apache-2.0。注意 GPL-3.0 是强著佐权：对外分发二进制时
+必须同时提供对应源码；若日后要做闭源商业版本，需要替换协议或取得全部版权人同意。

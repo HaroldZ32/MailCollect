@@ -5,7 +5,7 @@
   "description": "MailCollect MVP：AI 邮件待办抽取 + 群发分流 + 甘特图，桌面优先、单代码库全端。按 docs/requirements.md 与 .mpd/plans/001-mvp.md 的冻结契约并行开发。",
   "leadSessionId": "ea23238e-df2c-48a4-b9da-5b1f9e465aad",
   "planId": "plan-20261104023149519-82ss-001",
-  "phase": "active",
+  "phase": "idle",
   "createdAt": "2026-11-04T02:37:32.630Z",
   "members": [
     {
@@ -43,7 +43,7 @@
       "id": "M4",
       "name": "verifier",
       "description": "Reviewer — 验证泳道：只读代码、对照冻结契约与需求出 PASS/FAIL 结论",
-      "status": "running",
+      "status": "inactive",
       "spawnedAt": "2026-11-04T02:37:32.631Z",
       "workmateMode": "none",
       "workmateReason": "no-role",
@@ -302,15 +302,17 @@
       "subject": "复审：T12 的 2 Blocker + 2 High 是否关闭",
       "description": "复审 T12 的 2 个 Blocker + 2 个 High 是否真关。只读，不修。\n\n逐条核（自跑探针，不要只看代码）：\n1. **B1 设备码回调被遮蔽**：`apps/server/src/main.ts` 的 `loginAccount` 现在是否把回调**传给 `source.login(cb)`**（而不是只放在 createMailSource 的 options 上）；`packages/core/src/mail/login-callback.test.ts` 是否真能抓住遮蔽回归（可临时改成错误写法验证它会红，但不要提交）。另外确认服务端对「notice 里没 userCode」做了过滤（MSAL 先拒 client 时会空调回调）。\n2. **B2 空 secret 导致 500**：自己用空 secret 建一个 graph 账号，`GET /api/accounts` 是否 200；确认 `createAccount` 空 secret 存 NULL、`decryptSecret` 对空段返回 \"\"；两条回归测试（store + http）是否真在跑。\n3. **H1 表单缺 clientId**：`apps/ui/src/pages/SettingsPage.tsx` 选 Graph 时是否显示 Client ID（必填）+ 租户（可选）、隐藏密码；提交体是否只有 clientId/tenant 不带 cachePath；后端 400 detail 是否显示在表单内。\n4. **H2 live 脚本没证明链路**：`scripts/graph-login-live.mjs` 现在除了失败路径，是否真的覆盖了「空 secret 建号 / 缺 clientId 被 400 / 列表不 500」；它仍然无法证明成功设备码（无 Azure），请在结论里明确标注这个上限。\n\n另查：`POST /api/accounts` 对 graph 强制 clientId 是否会误伤已有账号的编辑/同步路径；`dataDir` 注入是否安全（不会把路径写到 UI）。\n\n输出：每条 CLOSED/STILL-OPEN/PARTIAL + 证据；总判定 approve / request changes；若 request changes 只列 Blocker/High。",
       "kind": "review",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [],
       "writeScopes": [],
       "createdAt": "2026-11-04T04:14:51.579Z",
-      "updatedAt": "2026-11-04T04:15:03.191Z",
-      "revision": 3,
+      "updatedAt": "2026-11-04T04:20:24.939Z",
+      "revision": 4,
       "owner": "6ed56b36-6042-4b5a-b956-c9b348ce4df7",
       "startedAt": "2026-11-04T04:14:53.597Z",
-      "attempt": 1
+      "attempt": 1,
+      "note": "T14 复审完成（HEAD bed0d53，工作树干净；门禁 typecheck 0、164 测试全过（core 149 + server 19）、build 0）。逐条：B1 CLOSED（main.ts 已把回调传给 source.login(cb) 并过滤无 userCode/verificationUri 的 notice；实跑 live 脚本收到 device-login；新 login-callback.test 能抓住适配器丢掉 login 参数，但【测不到服务端接线】：我把 main.ts 临时改回旧写法，全套 149 测试仍全绿，随后已恢复）。B2 CLOSED（真服务端空 secret graph 账号 201、列表 200、hasSecret=false、DB secret_cipher 为 NULL；decryptSecret(\"\")/\"v1:iv:tag:\" 返回 \"\"，畸形仍抛；store+http 回归测试在跑）。H1 CLOSED（Graph 表单有 Client ID/租户、隐藏密码与 IMAP 字段；提交 config 只含 clientId/tenant 无 cachePath；真服务端缺 clientId 返回 400 detail，UI 经 SaveResult 显示在表单内；t13 桩测试覆盖）。H2 CLOSED（有明确上限）：live 脚本 8/8，覆盖空 secret 建号/缺 clientId 400/列表不 500/SSE/202/事件；实跑只有 device-login 失败（invalid_grant），仍无法证明成功设备码（无 Azure）。另查：graph 强制 clientId 不影响已有账号（无编辑路由；sync 路径未变；老账号仍可列出）。dataDir 派生 cachePath 安全（服务端目录 + email 白名单清洗，未进 AccountView/UI），但 cachePath 会随 account change_log 出现在 /api/sync/changes 响应里（非 UI 泄漏，建议剔除/脱敏）；清洗后 email 碰撞可共享 MSAL 缓存（Low）；createApp 无 dataDir 时 graph 账号缺 cachePath（Low）。总判定 approve（0 Blocker / 0 High）；Medium 非阻塞建议：B1 回归测试只护适配器通道、服务端接线无自动化守卫；notice 过滤无测试；main.ts 仍传着已失效的 onDeviceCode option。T13 Playwright 未重跑（桩服务，仅读）；未用真实 Azure 成功跑通设备码。",
+      "finishedAt": "2026-11-04T04:20:24.939Z"
     }
   ],
   "nextMemberNumber": 5,

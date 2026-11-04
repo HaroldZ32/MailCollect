@@ -202,7 +202,14 @@ export class Store {
     const row = this.db.prepare("SELECT * FROM account WHERE id = ?").get<AccountRow>(id);
     if (!row) throw new Error("account write failed");
     const account = toAccount(row);
-    this.log("account", id, "insert", account);
+    // Never put `config` into the change log: it now carries a local cache path,
+    // and the change stream is exposed over /api/sync/changes.
+    this.log("account", id, "insert", {
+      id: account.id,
+      provider: account.provider,
+      label: account.label,
+      email: account.email,
+    });
     return account;
   }
 

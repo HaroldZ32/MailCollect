@@ -9,6 +9,7 @@ import { createLlmPort } from "@mailcollect/core/llm";
 import { processEmails, type PipelineDeps } from "@mailcollect/core/pipeline";
 import { createApp } from "./app.js";
 import { normalizeListId } from "./list-id.js";
+import { runDeviceLogin } from "./login-flow.js";
 import type { ServerServices } from "./services.js";
 
 const VERSION = "0.1.0";
@@ -69,44 +70,17 @@ const services: ServerServices = {
     const loaded = store.getAccountWithSecret(accountId);
     if (!loaded) throw new Error("账号不存在");
 
-    const source = createMailSource(
-      {
-        id: loaded.account.id,
-        provider: loaded.account.provider,
-        email: loaded.account.email,
-        config: loaded.account.config,
-        secret: loaded.secret,
-      },
-      {
-        onDeviceCode: (notice) =>
-          emit({ type: "device-code", data: { accountId, ...notice } }),
-      },
-    );
+    const source = createMailSource({
+      id: loaded.account.id,
+      provider: loaded.account.provider,
+      email: loaded.account.email,
+      config: loaded.account.config,
+      secret: loaded.secret,
+    });
 
-    try {
-      if (typeof source.login !== "function") {
-        emit({
-          type: "device-login",
-          data: { accountId, ok: false, detail: "该邮箱类型不支持交互式登录，请用「验证」" },
-        });
-        return;
-      }
-      // The callback MUST be passed here: the adapter always hands its own
-      // wrapper to the auth layer, which shadows the constructor-time callback.
-      // Guard the payload too — the adapter can invoke it before a code exists
-      // (e.g. MSAL rejects the client first), and an empty code would open a
-      // useless dialog in the UI.
-      const result = await source.login((notice) => {
-        if (!notice?.userCode || !notice.verificationUri) return;
-        emit({ type: "device-code", data: { accountId, ...notice } });
-      });
-      emit({
-        type: "device-login",
-        data: { accountId, ok: result.ok, detail: result.detail },
-      });
-    } finally {
-      await source.close();
-    }
+    // The wiring lives in login-flow.ts so it has a real regression test — an
+    // inline version stayed green under a mutation that reintroduced the bug.
+    await runDeviceLogin(source, accountId, emit);
   },
 
   async syncAccount(accountId, options, emit) {

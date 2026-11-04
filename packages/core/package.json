@@ -1,0 +1,35 @@
+{
+  "name": "@mailcollect/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mail": "./src/mail/index.ts",
+    "./llm": "./src/llm/index.ts",
+    "./store": "./src/store/index.ts",
+    "./pipeline": "./src/pipeline/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mailcollect/shared": "*",
+    "@ai-sdk/openai": "^4.0.108",
+    "@azure/msal-node": "^7.1.2",
+    "ai": "^7.0.162",
+    "chrono-node": "^2.10.3",
+    "imapflow": "^2.10.0",
+    "mailparser": "^3.14.1",
+    "node-pop3": "^0.15.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

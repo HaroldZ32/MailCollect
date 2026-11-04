@@ -1,0 +1,42 @@
+{
+  "servers": [
+    {
+      "extensions": [
+        "ts",
+        "tsx",
+        "js",
+        "jsx",
+        "mjs",
+        "cjs",
+        "mts",
+        "cts"
+      ],
+      "command": [
+        "/home/haroldzhao/.nvm/versions/node/v24.21.0/bin/node",
+        "/home/haroldzhao/.dsh/profiles/dsh-tui/node_modules/typescript-language-server/lib/cli.mjs",
+        "--stdio"
+      ],
+      "rootDir": "/home/haroldzhao/MyProj/DshProj/MailCollect"
+    },
+    {
+      "extensions": [
+        "rs"
+      ],
+      "command": [
+        "/home/haroldzhao/.cargo/bin/rust-analyzer"
+      ],
+      "rootDir": "/home/haroldzhao/MyProj/DshProj/MailCollect"
+    },
+    {
+      "extensions": [
+        "dart"
+      ],
+      "command": [
+        "/home/haroldzhao/MyEnv/flutter/flutter/bin/dart",
+        "language-server",
+        "--lsp"
+      ],
+      "rootDir": "/home/haroldzhao/MyProj/DshProj/MailCollect"
+    }
+  ]
+}

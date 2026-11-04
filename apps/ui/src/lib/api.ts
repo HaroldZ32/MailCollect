@@ -322,6 +322,10 @@ export const api = {
   },
 };
 
+export function eventsUrl(token: string): string {
+  return `${resolveApiBase()}${API_PREFIX}/events?token=${encodeURIComponent(token)}`;
+}
+
 export function apiBaseLabel(): string {
   const base = resolveApiBase();
   return base === "" ? "同源（经 Vite /api 代理）" : base;

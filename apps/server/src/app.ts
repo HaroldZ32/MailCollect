@@ -79,7 +79,13 @@ export function createApp(options: AppOptions): Hono {
   app.use(`${API_PREFIX}/*`, async (c, next) => {
     if (c.req.path === `${API_PREFIX}/health`) return next();
     const header = c.req.header("authorization") ?? "";
-    const provided = header.startsWith("Bearer ") ? header.slice(7) : "";
+    let provided = header.startsWith("Bearer ") ? header.slice(7) : "";
+    // EventSource cannot set request headers, so the SSE route alone may carry
+    // the token as a query parameter. The server binds to 127.0.0.1 by default
+    // and the token is per-launch, so this stays a local trust boundary.
+    if (!provided && c.req.path === `${API_PREFIX}/events`) {
+      provided = c.req.query("token") ?? "";
+    }
     if (!tokenMatches(token, provided)) {
       const { body, status } = fail("unauthorized", "缺少或错误的访问令牌", 401);
       return c.json(body, status as 401);

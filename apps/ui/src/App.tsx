@@ -1,5 +1,6 @@
 import { useState } from "react";
 import clsx from "clsx";
+import type { SyncProgress } from "@mailcollect/shared";
 import type { PageId } from "./components/Sidebar";
 import { Sidebar } from "./components/Sidebar";
 import { Icon } from "./components/Icon";
@@ -16,6 +17,15 @@ interface PageMeta {
   readonly title: string;
   readonly subtitle: string;
 }
+
+const SYNC_PHASE_LABEL: Record<SyncProgress["phase"], string> = {
+  connect: "连接中",
+  fetch: "拉取中",
+  store: "写入中",
+  extract: "抽取中",
+  done: "完成",
+  error: "失败",
+};
 
 const PAGE_META: Record<PageId, PageMeta> = {
   inbox: {
@@ -44,6 +54,16 @@ export function App() {
   const data = useMailData();
   const [page, setPage] = useState<PageId>("inbox");
   const meta = PAGE_META[page];
+  const syncLabel =
+    data.syncProgress === null
+      ? null
+      : data.syncProgress.fetched > 0
+        ? `同步 · ${SYNC_PHASE_LABEL[data.syncProgress.phase]} ${data.syncProgress.stored}/${data.syncProgress.fetched}`
+        : `同步 · ${SYNC_PHASE_LABEL[data.syncProgress.phase]}`;
+  const extractLabel =
+    data.extractProgress === null
+      ? null
+      : `抽取 ${data.extractProgress.done}/${data.extractProgress.total}`;
 
   if (data.mode === "loading") {
     return (
@@ -105,6 +125,18 @@ export function App() {
             <p className="page-subtitle">{meta.subtitle}</p>
           </div>
           <div className="topbar-actions">
+            {data.mode === "live" && syncLabel !== null ? (
+              <span className="chip chip--accent live-chip">
+                <Icon name="refresh" size={11} />
+                {syncLabel}
+              </span>
+            ) : null}
+            {data.mode === "live" && extractLabel !== null ? (
+              <span className="chip chip--iris live-chip">
+                <Icon name="spark" size={11} />
+                {extractLabel}
+              </span>
+            ) : null}
             <span className={clsx("mode-pill", data.mode === "demo" && "is-demo", data.mode === "live" && "is-live")}>
               <span className={clsx("conn-dot", data.mode === "demo" && "is-demo")} />
               {data.mode === "demo" ? "演示数据" : "已连接服务"}
@@ -117,12 +149,28 @@ export function App() {
           </div>
         </header>
 
+        {data.streamError === null ? null : (
+          <div className="stream-banner" role="alert">
+            <Icon name="alert" size={14} />
+            <span className="stream-banner-text">{data.streamError}</span>
+            <button
+              type="button"
+              className="stream-banner-close"
+              aria-label="关闭实时错误提示"
+              onClick={data.dismissStreamError}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+        )}
+
         <div className="page-scroll">
           <div className="page">
             {page === "inbox" ? (
               <InboxPage
                 mode={data.mode}
                 accounts={data.accounts}
+                resyncToken={data.resyncToken}
                 onSync={(accountId) => {
                   void data.syncAccount(accountId);
                 }}

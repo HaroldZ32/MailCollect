@@ -122,7 +122,9 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
-  paperclip: <path d="M8.5 12.5 6.7 14.3a3.5 3.5 0 0 0 5 5l6.6-6.6a5 5 0 0 0-7-7L5.4 11.6" />,
+  paperclip: (
+    <path d="M20.5 11.6 11.7 20.4a5.6 5.6 0 0 1-7.9-7.9l8-8a3.7 3.7 0 0 1 5.2 5.2l-8 8a1.9 1.9 0 0 1-2.6-2.6l7.8-7.8" />
+  ),
   server: (
     <>
       <rect x="4" y="4.5" width="16" height="6" rx="2" />

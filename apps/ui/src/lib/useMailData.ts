@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AccountView,
   BulkDecisionInput,
@@ -7,6 +7,7 @@ import type {
   LlmConfigView,
   LlmTestInput,
   LlmTestResponse,
+  SyncProgress,
   Task,
   TaskCounts,
   TaskTime,
@@ -15,7 +16,7 @@ import type {
   UserProfile,
   VerifyAccountResponse,
 } from "@mailcollect/shared";
-import { api, ApiError, hasInjectedRuntime, isApiError } from "./api";
+import { api, ApiError, eventsUrl, hasInjectedRuntime, isApiError, resolveToken } from "./api";
 import { createMockAccounts, createMockLlmConfigs, createMockProfile, createMockTasks } from "./mock";
 
 export type ConnectionMode = "loading" | "live" | "demo" | "offline";
@@ -25,10 +26,19 @@ export interface Notice {
   readonly text: string;
 }
 
+export interface ExtractProgress {
+  readonly done: number;
+  readonly total: number;
+}
+
 export interface MailData {
   readonly mode: ConnectionMode;
   readonly error: string | null;
   readonly notice: Notice | null;
+  readonly streamError: string | null;
+  readonly extractProgress: ExtractProgress | null;
+  readonly syncProgress: SyncProgress | null;
+  readonly resyncToken: number;
   readonly profile: UserProfile | null;
   readonly accounts: readonly AccountView[];
   readonly tasks: readonly Task[];
@@ -38,6 +48,7 @@ export interface MailData {
   readonly enterDemo: () => void;
   readonly refresh: () => void;
   readonly dismissNotice: () => void;
+  readonly dismissStreamError: () => void;
   readonly saveProfile: (input: UpsertProfileInput) => Promise<boolean>;
   readonly addAccount: (input: CreateAccountInput) => Promise<boolean>;
   readonly removeAccount: (accountId: string) => Promise<boolean>;
@@ -147,6 +158,62 @@ function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}`;
 }
 
+const TASK_STATUS_VALUES: readonly Task["status"][] = ["candidate", "confirmed", "dismissed", "done"];
+const TASK_ORIGIN_VALUES: readonly Task["origin"][] = ["personal", "broadcast", "uncertain"];
+const SYNC_PHASE_VALUES: readonly SyncProgress["phase"][] = ["connect", "fetch", "store", "extract", "done", "error"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isTaskPayload(value: unknown): value is Task {
+  if (!isRecord(value)) return false;
+  const status = value["status"];
+  const origin = value["origin"];
+  return (
+    typeof value["id"] === "string" &&
+    typeof value["title"] === "string" &&
+    typeof value["evidenceQuote"] === "string" &&
+    typeof value["confidence"] === "number" &&
+    TASK_STATUS_VALUES.some((item) => item === status) &&
+    TASK_ORIGIN_VALUES.some((item) => item === origin)
+  );
+}
+
+function isExtractProgress(value: unknown): value is ExtractProgress {
+  return (
+    isRecord(value) && typeof value["done"] === "number" && typeof value["total"] === "number"
+  );
+}
+
+function isSyncProgress(value: unknown): value is SyncProgress {
+  if (!isRecord(value)) return false;
+  const phase = value["phase"];
+  return (
+    typeof value["accountId"] === "string" &&
+    typeof value["fetched"] === "number" &&
+    typeof value["stored"] === "number" &&
+    SYNC_PHASE_VALUES.some((item) => item === phase)
+  );
+}
+
+function parseEventData(event: MessageEvent): unknown {
+  const raw: unknown = event.data;
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function streamErrorMessage(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const message = value["message"];
+  return typeof message === "string" && message.trim() !== "" ? message : null;
+}
+
 export function useMailData(): MailData {
   const [mode, setMode] = useState<ConnectionMode>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +222,11 @@ export function useMailData(): MailData {
   const [accounts, setAccounts] = useState<readonly AccountView[]>([]);
   const [tasks, setTasks] = useState<readonly Task[]>([]);
   const [llmConfigs, setLlmConfigs] = useState<readonly LlmConfigView[]>([]);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [extractProgress, setExtractProgress] = useState<ExtractProgress | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const [resyncToken, setResyncToken] = useState(0);
+  const streamConnectedRef = useRef(false);
 
   const counts = useMemo(() => deriveCounts(tasks), [tasks]);
 
@@ -208,6 +280,101 @@ export function useMailData(): MailData {
     const timer = window.setTimeout(() => setNotice(null), 4200);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  const reloadTasks = useCallback(async (): Promise<void> => {
+    try {
+      const response = await api.tasks.list();
+      setTasks(response.items);
+    } catch (caught) {
+      if (isApiError(caught) && (caught.code === "network" || caught.code === "unauthorized")) return;
+      pushNotice("error", failureText(caught));
+    }
+  }, [pushNotice]);
+
+  useEffect(() => {
+    if (mode !== "live") return;
+    const token = resolveToken();
+    if (token === "") return;
+
+    let disposed = false;
+    let source: EventSource | null = null;
+    let retryTimer: number | null = null;
+    let retryDelay = 1000;
+
+    const onMessage = (handler: (payload: unknown) => void) => (event: Event): void => {
+      if (!(event instanceof MessageEvent)) return;
+      handler(parseEventData(event));
+    };
+
+    const connect = (): void => {
+      if (disposed) return;
+      const next = new EventSource(eventsUrl(token));
+      source = next;
+
+      next.addEventListener("open", () => {
+        if (disposed) return;
+        retryDelay = 1000;
+        setStreamError(null);
+        if (streamConnectedRef.current) {
+          void reloadTasks();
+          setResyncToken((previous) => previous + 1);
+        }
+        streamConnectedRef.current = true;
+      });
+
+      next.addEventListener("task", onMessage((payload) => {
+        if (!isTaskPayload(payload)) return;
+        const incoming = payload;
+        setTasks((previous) => {
+          const index = previous.findIndex((task) => task.id === incoming.id);
+          if (index === -1) return [...previous, incoming];
+          const copy = previous.slice();
+          copy[index] = incoming;
+          return copy;
+        });
+      }));
+
+      next.addEventListener("extract", onMessage((payload) => {
+        if (!isExtractProgress(payload)) return;
+        setExtractProgress(payload);
+      }));
+
+      next.addEventListener("sync", onMessage((payload) => {
+        if (!isSyncProgress(payload)) return;
+        if (payload.phase === "error") {
+          setSyncProgress(null);
+          setStreamError(payload.message ?? "同步失败");
+          return;
+        }
+        if (payload.phase === "done") {
+          setSyncProgress(null);
+          return;
+        }
+        setSyncProgress(payload);
+      }));
+
+      next.addEventListener("error", (event: Event) => {
+        if (disposed) return;
+        if (event instanceof MessageEvent) {
+          setStreamError(streamErrorMessage(parseEventData(event)) ?? "服务端推送了一条错误事件");
+          return;
+        }
+        source?.close();
+        source = null;
+        setStreamError("实时连接已断开，正在重连…");
+        retryTimer = window.setTimeout(connect, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30_000);
+      });
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      source?.close();
+    };
+  }, [mode, reloadTasks]);
 
   const retry = useCallback(() => {
     void bootstrap();
@@ -514,11 +681,16 @@ export function useMailData(): MailData {
   }, [mode, pushNotice]);
 
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const dismissStreamError = useCallback(() => setStreamError(null), []);
 
   return {
     mode,
     error,
     notice,
+    streamError,
+    extractProgress,
+    syncProgress,
+    resyncToken,
     profile,
     accounts,
     tasks,
@@ -528,6 +700,7 @@ export function useMailData(): MailData {
     enterDemo: loadDemo,
     refresh,
     dismissNotice,
+    dismissStreamError,
     saveProfile,
     addAccount,
     removeAccount,

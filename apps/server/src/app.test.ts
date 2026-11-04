@@ -109,6 +109,15 @@ describe("http api", () => {
     expect(res.status).toBe(401);
   });
 
+  it("accepts a query token ONLY on the SSE route (EventSource cannot set headers)", async () => {
+    // Non-SSE routes must keep refusing the query-token shortcut.
+    const profileViaQuery = await app.request(`/api/profile?token=${TOKEN}`);
+    expect(profileViaQuery.status).toBe(401);
+
+    const wrongOnEvents = await app.request("/api/events?token=wrong");
+    expect(wrongOnEvents.status).toBe(401);
+  });
+
   it("round-trips the profile", async () => {
     const put = await call("/api/profile", {
       method: "PUT",

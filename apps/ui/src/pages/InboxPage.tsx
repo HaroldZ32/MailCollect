@@ -21,6 +21,7 @@ import type { ConnectionMode } from "../lib/useMailData";
 export interface InboxPageProps {
   readonly mode: ConnectionMode;
   readonly accounts: readonly AccountView[];
+  readonly resyncToken: number;
   readonly onSync: (accountId: string) => void;
   readonly onExtract: () => void;
 }
@@ -44,7 +45,7 @@ function avatarBackground(seed: string): string {
   return `linear-gradient(140deg, hsl(${hue + 6} 92% 70%), hsl(${hue} 80% 54%))`;
 }
 
-export function InboxPage({ mode, accounts, onSync, onExtract }: InboxPageProps) {
+export function InboxPage({ mode, accounts, resyncToken, onSync, onExtract }: InboxPageProps) {
   const demoEmails = useMemo(() => createMockEmails(), []);
   const demoVerdicts = useMemo(() => createMockVerdicts(), []);
 
@@ -94,7 +95,7 @@ export function InboxPage({ mode, accounts, onSync, onExtract }: InboxPageProps)
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mode, search, accountFilter, refreshToken]);
+  }, [mode, search, accountFilter, refreshToken, resyncToken]);
 
   const visibleEmails = useMemo(() => {
     if (mode !== "demo") return liveEmails;

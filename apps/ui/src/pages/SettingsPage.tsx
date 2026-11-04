@@ -669,7 +669,7 @@ export function SettingsPage({
 
               {provider === "graph" ? (
                 <>
-                  <div className="form-row">
+                  <div className="form-row form-row--full">
                     <label className="field-label" htmlFor="account-client-id">
                       Client ID（应用程序(客户端) ID）
                     </label>

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "taskId": "T14",
+  "subject": "复审：T12 的 2 Blocker + 2 High 是否关闭",
+  "description": "复审 T12 的 2 个 Blocker + 2 个 High 是否真关。只读，不修。\n\n逐条核（自跑探针，不要只看代码）：\n1. **B1 设备码回调被遮蔽**：`apps/server/src/main.ts` 的 `loginAccount` 现在是否把回调**传给 `source.login(cb)`**（而不是只放在 createMailSource 的 options 上）；`packages/core/src/mail/login-callback.test.ts` 是否真能抓住遮蔽回归（可临时改成错误写法验证它会红，但不要提交）。另外确认服务端对「notice 里没 userCode」做了过滤（MSAL 先拒 client 时会空调回调）。\n2. **B2 空 secret 导致 500**：自己用空 secret 建一个 graph 账号，`GET /api/accounts` 是否 200；确认 `createAccount` 空 secret 存 NULL、`decryptSecret` 对空段返回 \"\"；两条回归测试（store + http）是否真在跑。\n3. **H1 表单缺 clientId**：`apps/ui/src/pages/SettingsPage.tsx` 选 Graph 时是否显示 Client ID（必填）+ 租户（可选）、隐藏密码；提交体是否只有 clientId/tenant 不带 cachePath；后端 400 detail 是否显示在表单内。\n4. **H2 live 脚本没证明链路**：`scripts/graph-login-live.mjs` 现在除了失败路径，是否真的覆盖了「空 secret 建号 / 缺 clientId 被 400 / 列表不 500」；它仍然无法证明成功设备码（无 Azure），请在结论里明确标注这个上限。\n\n另查：`POST /api/accounts` 对 graph 强制 clientId 是否会误伤已有账号的编辑/同步路径；`dataDir` 注入是否安全（不会把路径写到 UI）。\n\n输出：每条 CLOSED/STILL-OPEN/PARTIAL + 证据；总判定 approve / request changes；若 request changes 只列 Blocker/High。",
+  "blockedBy": [],
+  "writeScopes": [],
+  "attempt": 1,
+  "claimedBy": "6ed56b36-6042-4b5a-b956-c9b348ce4df7",
+  "claimedAt": "2026-11-04T04:15:03.191Z",
+  "revision": 2
+}

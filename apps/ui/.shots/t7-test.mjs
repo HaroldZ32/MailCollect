@@ -95,6 +95,31 @@ await page.waitForTimeout(500);
 check("owner=other 群发候选不出现", (await titleCount("他人群发候选")) === 0);
 check("owner=other 群发不生成提醒卡", (await page.locator(".broadcast-card").count()) === 0);
 
+// listId contract: server-normalised List-Id must be used for bulk decisions
+await emit("task", {
+  ...taskBase,
+  id: "t7-broadcast-me",
+  title: "我的群发候选",
+  status: "candidate",
+  owner: "me",
+  origin: "broadcast",
+});
+await page.waitForTimeout(800);
+check("群发提醒卡出现", (await page.locator(".broadcast-card").count()) === 1);
+const broadcastCard = page.locator(".broadcast-card").first();
+const broadcastText = (await broadcastCard.innerText()).replace(/\s+/g, " ");
+check("群发卡显示服务端 listId", broadcastText.includes("stub-list.example"), broadcastText.slice(0, 140));
+await broadcastCard.locator("button").filter({ hasText: "加入待办" }).click();
+await page.waitForTimeout(800);
+const bulkStats = await fetch(`${STUB}/control/stats`).then((response) => response.json());
+check(
+  "BulkDecisionInput 原样携带服务端 listId",
+  bulkStats.lastBulkListId === "stub-list.example",
+  String(bulkStats.lastBulkListId),
+);
+check("群发确认走 confirm 决定", bulkStats.lastBulkDecision === "confirm", String(bulkStats.lastBulkDecision));
+check("群发确认后提醒卡消失", (await page.locator(".broadcast-card").count()) === 0);
+
 // H2: timeline excludes owner=other
 await page.locator(".nav-item").filter({ hasText: "时间线" }).click();
 await page.locator(".gantt_task_line").first().waitFor({ timeout: 20000 });

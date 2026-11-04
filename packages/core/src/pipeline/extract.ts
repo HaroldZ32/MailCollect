@@ -5,6 +5,7 @@ import type {
   Task,
   TaskKind,
   TaskOwner,
+  TaskStatus,
   TaskTime,
   UserProfile,
 } from "@mailcollect/shared";
@@ -13,7 +14,7 @@ import {
   type ExtractionItem,
 } from "@mailcollect/shared";
 import type { LlmUsage } from "../llm/port.js";
-import { classifyBroadcast } from "./broadcast.js";
+import { classifyBroadcast, hashBody } from "./broadcast.js";
 import { describeIdentityMentions, mentionsUser } from "./identity.js";
 import { cleanBody } from "./strip.js";
 import { resolveTaskTime } from "./time.js";
@@ -73,11 +74,15 @@ export async function extractTasks(
   const verdicts = new Map<string, BroadcastVerdict>();
   const skipped: Array<{ emailId: string; reason: string }> = [];
   const threads: RenderedEmail[][] = [];
+  // 「同一天 + 同正文哈希」需要整批视野；单封调用时这份表为空。
+  const duplicateBodies = countSameDayDuplicateBodies(emails, deps.profile);
 
   for (const thread of groupByThread(emails)) {
     const rendered: RenderedEmail[] = [];
     for (const email of thread) {
-      const verdict = classifyBroadcast(email, deps.profile);
+      const verdict = classifyBroadcast(email, deps.profile, {
+        duplicateBodyCount: duplicateBodies.get(email.id) ?? 0,
+      });
       verdicts.set(email.id, verdict);
       const body = cleanBody(email.bodyText ?? "");
       if (body.trim() === "" && email.subject.trim() === "") {
@@ -137,8 +142,9 @@ export async function extractTasks(
 }
 
 /**
- * 服务端单封入口（集成契约）。返回完整 Task（status=candidate），
- * 失败的群发判定在 LLM 之前就已确定，无需再次调用模型。
+ * 服务端单封入口（集成契约）。返回完整 Task；status 按 R3/R4 映射：
+ * owner=me 且代码层判定 personal → confirmed，其余（含 me+群发）→ candidate。
+ * 群发判定在 LLM 之前就已确定，无需再次调用模型。
  */
 export async function processEmail(
   deps: PipelineDeps,
@@ -174,6 +180,43 @@ function compareSentAt(left: RawEmail, right: RawEmail): number {
   const safeLeft = Number.isNaN(leftAt) ? 0 : leftAt;
   const safeRight = Number.isNaN(rightAt) ? 0 : rightAt;
   return safeLeft - safeRight || left.id.localeCompare(right.id);
+}
+
+/**
+ * 同一用户时区「同一天」内、正文哈希相同的其它邮件数量（0 = 唯一）。
+ * 这是 R4 的「去重正文哈希」信号：同日多条一模一样 → 自动通知/群发。
+ *
+ * 批量入口（extractTasks）内部会用它；逐封调用 processEmail 的服务端
+ * 也可以先对整批邮件调一次，把结果通过
+ * `classifyBroadcast(email, profile, { duplicateBodyCount })` 传进判定。
+ */
+export function countSameDayDuplicateBodies(
+  emails: readonly RawEmail[],
+  profile: UserProfile,
+): Map<string, number> {
+  const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: profile.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const buckets = new Map<string, RawEmail[]>();
+  for (const email of emails) {
+    const sentAt = new Date(email.sentAt);
+    if (Number.isNaN(sentAt.getTime())) continue;
+    // 先剥引文/签名再哈希：同一封转发件不该因为引用历史不同而漏判。
+    const hash = hashBody({ text: cleanBody(email.bodyText ?? "") });
+    if (hash === null) continue;
+    const key = `${dayFormatter.format(sentAt)}|${hash}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(email);
+    else buckets.set(key, [email]);
+  }
+  const counts = new Map<string, number>();
+  for (const bucket of buckets.values()) {
+    for (const email of bucket) counts.set(email.id, bucket.length - 1);
+  }
+  return counts;
 }
 
 interface RenderedEmail {
@@ -365,7 +408,7 @@ function toTask(extracted: ExtractedTask, profile: UserProfile, now: string): Ta
     owner: extracted.owner,
     ownerName: extracted.ownerName,
     kind: extracted.kind,
-    status: "candidate",
+    status: deriveStatus(extracted),
     origin: extracted.broadcast.kind,
     confidence: extracted.confidence,
     evidenceQuote: extracted.evidenceQuote,
@@ -375,4 +418,15 @@ function toTask(extracted: ExtractedTask, profile: UserProfile, now: string): Ta
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/**
+ * R3/R4 的 owner → status 映射：
+ * 只有「点名给我 + 代码层确认是个人邮件」才自动进待办；
+ * 群发即使点名到我，也要用户自己点「加入待办」。
+ */
+function deriveStatus(extracted: ExtractedTask): TaskStatus {
+  return extracted.owner === "me" && extracted.broadcast.kind === "personal"
+    ? "confirmed"
+    : "candidate";
 }

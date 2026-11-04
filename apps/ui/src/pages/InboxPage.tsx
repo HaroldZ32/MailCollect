@@ -121,7 +121,7 @@ export function InboxPage({ mode, accounts, resyncToken, onSync, onExtract }: In
         setDetail(null);
         return;
       }
-      setDetail({ email, verdict: demoVerdicts[email.id] ?? null });
+      setDetail({ email, verdict: demoVerdicts[email.id] ?? null, listId: listIdOf(email) });
       return;
     }
 
@@ -139,7 +139,9 @@ export function InboxPage({ mode, accounts, resyncToken, onSync, onExtract }: In
         if (cancelled) return;
         setDetailLoading(false);
         if (isApiError(error)) {
-          if (fallback !== undefined) setDetail({ email: fallback, verdict: null });
+          if (fallback !== undefined) {
+            setDetail({ email: fallback, verdict: null, listId: listIdOf(fallback) });
+          }
           return;
         }
         throw error;

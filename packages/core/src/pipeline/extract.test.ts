@@ -129,7 +129,7 @@ describe("端到端样本 3：纯广告", () => {
     expect(verdict?.signals).toEqual(
       expect.arrayContaining([
         "header:precedence",
-        "to-count:>=10",
+        "recipients:>=10",
         "from:no-reply",
         "user:not-in-to",
       ]),
@@ -424,5 +424,140 @@ describe("processEmail（服务端集成契约）", () => {
     expect(result.verdict.kind).toBe("broadcast");
     expect(result.tasks[0]?.origin).toBe("broadcast");
     expect(result.tasks[0]?.owner).toBe("everyone");
+  });
+
+  it("点名任务（owner=me 且 personal）→ status=confirmed", async () => {
+    const email = makeEmail({ id: "mail-confirm", bodyText: "张三，请提交周报。" });
+    const llm = new ScriptedLlm(() =>
+      extractionJson([
+        extractionItem({
+          title: "提交周报",
+          owner: "me",
+          evidenceQuote: "张三，请提交周报。",
+        }),
+      ]),
+    );
+
+    const result = await processEmail(deps(llm), email);
+
+    expect(result.verdict.kind).toBe("personal");
+    expect(result.tasks[0]?.owner).toBe("me");
+    expect(result.tasks[0]?.status).toBe("confirmed");
+  });
+
+  it("群发里明确点名我（owner=me）仍是 candidate，交给用户决定", async () => {
+    const email = makeEmail({
+      id: "mail-broadcast-me",
+      to: ["devs@lists.example.com"],
+      headers: { "List-Id": "<devs.lists.example.com>" },
+      bodyText: "张三，请在周五前更新值班表。",
+    });
+    const llm = new ScriptedLlm(() =>
+      extractionJson([
+        extractionItem({
+          title: "更新值班表",
+          owner: "me",
+          evidenceQuote: "张三，请在周五前更新值班表。",
+        }),
+      ]),
+    );
+
+    const result = await processEmail(deps(llm), email);
+
+    expect(result.verdict.kind).toBe("broadcast");
+    expect(result.tasks[0]?.owner).toBe("me");
+    expect(result.tasks[0]?.status).toBe("candidate");
+  });
+});
+
+describe("同日重复正文（body-hash）", () => {
+  const SAME_BODY = "系统维护通知：本周五 22:00 起停机两小时。";
+
+  it("同一天两封正文相同 → 判定降级为 broadcast 并记 body-hash", async () => {
+    const first = makeEmail({
+      id: "dup-1",
+      threadId: "thread-dup-1",
+      fromEmail: "notice@corp.cn",
+      bodyText: SAME_BODY,
+      sentAt: "2026-11-04T09:00:00+08:00",
+    });
+    const second = makeEmail({
+      id: "dup-2",
+      threadId: "thread-dup-2",
+      fromEmail: "notice@corp.cn",
+      bodyText: SAME_BODY,
+      sentAt: "2026-11-04T15:00:00+08:00",
+    });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([first, second], deps(llm));
+
+    for (const id of ["dup-1", "dup-2"]) {
+      const verdict = outcome.verdicts.get(id);
+      expect(verdict?.kind).toBe("broadcast");
+      expect(verdict?.signals).toContain("body-hash");
+    }
+  });
+
+  it("同一天但正文不同 → 不触发 body-hash", async () => {
+    const first = makeEmail({
+      id: "diff-1",
+      threadId: "thread-diff-1",
+      fromEmail: "notice@corp.cn",
+      bodyText: "维护通知甲。",
+      sentAt: "2026-11-04T09:00:00+08:00",
+    });
+    const second = makeEmail({
+      id: "diff-2",
+      threadId: "thread-diff-2",
+      fromEmail: "notice@corp.cn",
+      bodyText: "维护通知乙。",
+      sentAt: "2026-11-04T15:00:00+08:00",
+    });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([first, second], deps(llm));
+
+    for (const id of ["diff-1", "diff-2"]) {
+      const verdict = outcome.verdicts.get(id);
+      expect(verdict?.kind).toBe("personal");
+      expect(verdict?.signals).not.toContain("body-hash");
+    }
+  });
+
+  it("正文相同但不在同一天 → 不触发 body-hash", async () => {
+    const first = makeEmail({
+      id: "day-1",
+      threadId: "thread-day-1",
+      fromEmail: "notice@corp.cn",
+      bodyText: SAME_BODY,
+      sentAt: "2026-11-04T09:00:00+08:00",
+    });
+    const second = makeEmail({
+      id: "day-2",
+      threadId: "thread-day-2",
+      fromEmail: "notice@corp.cn",
+      bodyText: SAME_BODY,
+      sentAt: "2026-11-05T09:00:00+08:00",
+    });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([first, second], deps(llm));
+
+    for (const id of ["day-1", "day-2"]) {
+      const verdict = outcome.verdicts.get(id);
+      expect(verdict?.kind).toBe("personal");
+      expect(verdict?.signals).not.toContain("body-hash");
+    }
+  });
+
+  it("单封 processEmail 看不到同日其它邮件，不产生 body-hash（已知边界）", async () => {
+    const email = makeEmail({ id: "single-dup", bodyText: SAME_BODY });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const result = await processEmail(deps(llm), email);
+
+    expect(result.verdict.kind).toBe("personal");
+    expect(result.verdict.signals).not.toContain("body-hash");
   });
 });

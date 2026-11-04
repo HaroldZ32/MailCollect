@@ -168,7 +168,7 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { items: [emailSeed()], nextCursor: null });
   }
   if (url.pathname.startsWith("/api/emails/")) {
-    return json(res, 200, { email: emailSeed(), verdict: null });
+    return json(res, 200, { email: emailSeed(), verdict: null, listId: "stub-list.example" });
   }
   if (url.pathname === "/api/tasks" && req.method === "GET") {
     stats.taskFetches += 1;
@@ -187,6 +187,9 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname === "/api/tasks/bulk" && req.method === "POST") {
     const input = await readBody(req);
+    stats.lastBulkListId = input.listId ?? null;
+    stats.lastBulkDecision = input.decision ?? null;
+    stats.lastBulkIds = input.ids ?? [];
     const status = input.decision === "confirm" ? "confirmed" : "dismissed";
     const updated = [];
     tasks = tasks.map((task) => {

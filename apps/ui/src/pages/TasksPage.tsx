@@ -62,7 +62,9 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
       const next: Record<string, EmailDetail> = {};
       for (const id of ids) {
         const email = emails.find((item) => item.id === id);
-        if (email !== undefined) next[id] = { email, verdict: verdicts[id] ?? null };
+        if (email !== undefined) {
+          next[id] = { email, verdict: verdicts[id] ?? null, listId: listIdOf(email) };
+        }
       }
       setEmailDetails(next);
       return;
@@ -101,13 +103,14 @@ export function TasksPage({ mode, tasks, counts, onBulkDecision, onComplete, onO
 
     const result: BroadcastGroup[] = [];
     for (const [emailId, items] of byEmail) {
-      const email = emailDetails[emailId]?.email;
+      const detail = emailDetails[emailId];
+      const email = detail?.email;
       const first = items[0];
       if (first === undefined) continue;
       result.push({
         emailId,
         tasks: items,
-        listId: email === undefined ? null : listIdOf(email),
+        listId: detail?.listId ?? null,
         subject: email?.subject ?? "群发邮件（邮件元信息未加载）",
         from: email === undefined ? emailId : senderLabel(email.fromName, email.fromEmail),
         evidence: first.evidenceQuote,

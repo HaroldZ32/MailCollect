@@ -201,6 +201,8 @@ async function requestJson<T>(path: string, init: JsonRequest = {}): Promise<T> 
 export interface EmailDetail {
   readonly email: RawEmail;
   readonly verdict: BroadcastVerdict | null;
+  /** 服务端归一化后的 List-Id（去尖括号、小写），用于「记住该列表」。 */
+  readonly listId: string | null;
 }
 
 export interface LlmConfigResponse {

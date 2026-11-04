@@ -107,7 +107,8 @@ export function listIdOf(email: RawEmail): string | null {
   if (raw === null) return null;
   const trimmed = raw.trim();
   if (trimmed === "") return null;
-  return trimmed.replace(/^</, "").replace(/>$/, "");
+  const normalised = trimmed.replace(/^</, "").replace(/>$/, "").trim().toLowerCase();
+  return normalised === "" ? null : normalised;
 }
 
 export function senderLabel(name: string | null, email: string): string {

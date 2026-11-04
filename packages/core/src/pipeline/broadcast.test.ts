@@ -62,11 +62,32 @@ describe("judgeBroadcast 强信号 → broadcast", () => {
     expect(judge({ headers: { Precedence: "list" } }).kind).toBe("broadcast");
   });
 
-  it("To 数量 >= 10", () => {
-    const to = Array.from({ length: 10 }, (_, index) => `user${index}@example.com`);
-    const verdict = judge({ to });
+  it("To+Cc 合计 >= 10", () => {
+    const to = Array.from({ length: 5 }, (_, index) => `to${index}@example.com`);
+    const cc = Array.from({ length: 5 }, (_, index) => `cc${index}@example.com`);
+    const verdict = judge({ to, cc });
     expect(verdict.kind).toBe("broadcast");
-    expect(verdict.signals).toContain("to-count:>=10");
+    expect(verdict.signals).toContain("recipients:>=10");
+  });
+
+  it("To 只有 1 人但 Cc 200 人 → broadcast 而不是 personal（R4 基数含 Cc）", () => {
+    const cc = Array.from({ length: 200 }, (_, index) => `cc${index}@example.com`);
+    const verdict = judge({ to: ["zhangsan@example.com"], cc });
+    expect(verdict.kind).toBe("broadcast");
+    expect(verdict.signals).toContain("recipients:>=10");
+    expect(verdict.signals).toContain("user:in-to");
+  });
+
+  it("同一天多条正文哈希相同（duplicateBodyCount>=1）→ broadcast + body-hash", () => {
+    const verdict = judge({ duplicateBodyCount: 1 });
+    expect(verdict.kind).toBe("broadcast");
+    expect(verdict.signals).toContain("body-hash");
+  });
+
+  it("正文唯一时没有 body-hash 信号", () => {
+    const verdict = judge({ duplicateBodyCount: 0 });
+    expect(verdict.kind).toBe("personal");
+    expect(verdict.signals).not.toContain("body-hash");
   });
 
   it.each([
@@ -83,11 +104,20 @@ describe("judgeBroadcast 强信号 → broadcast", () => {
 });
 
 describe("judgeBroadcast 无强信号", () => {
-  it("用户在 To 且 To 人数 <= 3 → personal", () => {
+  it("用户在 To 且收件人合计 <= 3 → personal", () => {
     const verdict = judge({ to: ["zhangsan@example.com", "lisi@example.com"] });
     expect(verdict.kind).toBe("personal");
     expect(verdict.signals).toContain("user:in-to");
-    expect(verdict.signals).toContain("to-count:<=3");
+    expect(verdict.signals).toContain("recipients:<=3");
+  });
+
+  it("To=我 + Cc 两人（合计 3）仍算 small → personal", () => {
+    const verdict = judge({
+      to: ["zhangsan@example.com"],
+      cc: ["a@example.com", "b@example.com"],
+    });
+    expect(verdict.kind).toBe("personal");
+    expect(verdict.signals).toContain("recipients:<=3");
   });
 
   it("用户只在 Cc（不在 To）→ uncertain 并记录加权信号", () => {
@@ -99,11 +129,11 @@ describe("judgeBroadcast 无强信号", () => {
     expect(verdict.signals).toContain("user:in-cc");
   });
 
-  it("用户在 To 但 To 人数 4-9 → uncertain", () => {
+  it("用户在 To 但收件人合计 4-9 → uncertain", () => {
     const to = ["zhangsan@example.com", "a@x.com", "b@x.com", "c@x.com", "d@x.com"];
     const verdict = judge({ to });
     expect(verdict.kind).toBe("uncertain");
-    expect(verdict.signals).toContain("to-count:>3");
+    expect(verdict.signals).toContain("recipients:>3");
   });
 
   it("To 为空 → uncertain（不能证明是个人邮件）", () => {

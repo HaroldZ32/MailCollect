@@ -1,9 +1,1 @@
-{
-  "ea23238e-df2c-48a4-b9da-5b1f9e465aad": {
-    "goalId": "goal-a23f289d-5747-4d4d-a83a-213efa873528",
-    "revision": 1,
-    "objective": "MailCollect MVP：AI 邮件待办抽取 + 群发分流 + 甘特图，桌面优先、单代码库全端。按 docs/requirements.md 与 .mpd/plans/001-mvp.md 的冻结契约并行开发。",
-    "source": "team",
-    "at": "2026-11-04T02:37:33.020Z"
-  }
-}
+{}

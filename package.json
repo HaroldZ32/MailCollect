@@ -14,7 +14,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "smoke": "node scripts/smoke.mjs",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "dist:win": "npm run build:win -w @mailcollect/desktop",
+    "dist:mac": "npm run build:mac -w @mailcollect/desktop",
+    "dist:linux": "npm run build:linux -w @mailcollect/desktop",
+    "dist:win:portable": "npm run build:win:dir -w @mailcollect/desktop && node scripts/zip-win.mjs"
   },
   "workspaces": [
     "apps/*",

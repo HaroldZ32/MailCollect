@@ -47,3 +47,53 @@ npm run dev:desktop    # 起完整桌面应用
 ```
 
 首次启动后到「设置」填写：姓名 + 邮箱别名 + 时区，添加一个 IMAP 账号，配一个 LLM Key。
+
+## 打包与分发
+
+### 三端各自的命令
+
+```bash
+npm run dist:linux        # AppImage（Linux 本机可直接交叉，已验证）
+npm run dist:win          # NSIS 安装包——需要 Windows 或 wine，见下
+npm run dist:mac          # dmg——必须在 macOS 上打
+```
+
+### Windows 端怎么拿
+
+**路线 A：GitHub Actions（推荐，能出正经安装包）**
+
+仓库里已经放好 `.github/workflows/build.yml`：推一个 `v*` 标签，或在 Actions 页面手动
+Run workflow，三端安装包会一起构建并作为 artifact 上传。Windows 那台 runner 是原生
+Windows，NSIS 安装器不需要 wine。
+
+**路线 B：在 Linux 上出一个免安装的 zip（不需要 wine）**
+
+```bash
+npm run dist:win:portable
+# → apps/desktop/release/MailCollect-win-portable-x64.zip（解压后双击 mailcollect.exe）
+```
+
+原理：electron-builder 能在 Linux 上完成 `win-unpacked`（含 `mailcollect.exe` 与
+`resources/app.asar`），只有最后把它包成 NSIS 安装器那一步要调 `wine` 里的 `elevate.exe`。
+所以「免安装 zip」可交叉，「安装程序」不能。
+
+**路线 C：在 Windows 机器上直接打**
+
+```powershell
+git clone <repo> && cd MailCollect
+npm install
+npm run dist:win     # 产出 apps/desktop/release/MailCollect Setup 0.1.0.exe
+```
+
+### 两个已知事项
+
+- **未签名**：没有代码签名证书时，Windows 首次运行会弹 SmartScreen「未知发布者」。
+  要消除就配置 `CSC_LINK` / `CSC_KEY_PASSWORD` 两个 secret（workflow 已经接好）。
+- **图标**：目前用 Electron 默认图标。放一个 `build/icon.ico`（Windows）/
+  `build/icon.icns`（macOS）/ `build/icon.png`（Linux）到 `apps/desktop/` 即可替换。
+
+### 数据放在哪
+
+- Windows：`%APPDATA%\MailCollect\data\`（SQLite + `secret.key` + Graph token 缓存）
+- macOS：`~/Library/Application Support/MailCollect/data/`
+- Linux：`~/.config/MailCollect/data/`

@@ -1,4 +1,5 @@
 import type {
+  ChangeLogRow,
   LlmProtocol,
   MailProvider,
   RawEmail,
@@ -179,6 +180,15 @@ export interface ExtractRequest {
   accountId?: string;
   /** Re-run extraction over already-stored emails. */
   emailIds?: string[];
+}
+
+/**
+ * The reserved cloud-sync seam (R7).
+ * A future sync backend only has to reproduce this ordered operation stream.
+ */
+export interface SyncChangesResponse {
+  head: number;
+  items: ChangeLogRow[];
 }
 
 /* ----------------------------------- SSE ------------------------------------ */

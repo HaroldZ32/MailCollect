@@ -35,7 +35,17 @@ Run from the repository root.
 - Test: `npm test`
 - Type check: `npm run typecheck`
 - Single package: `npm run typecheck -w @mailcollect/core` (same shape for `test` / `build`)
+- Integration smoke: `npm run smoke` — boots the real server on a random port with a
+  throwaway data dir and checks the HTTP contract end to end.
+- UI screenshots: `SHOT_ROUTES="/,/tasks,/timeline,/settings" node scripts/shot.mjs`
+  (Playwright headless Chromium; writes into `evidence/ui/`).
 - Format: none configured yet — match the surrounding style by hand.
+
+Environment notes for this machine: `NODE_ENV=production` is set globally, so a manual
+npm install MUST pass `--include=dev` (`.npmrc` pins `include=dev` for this project).
+`$HOME` and pnpm's store lock are read-only under the sandbox — redirect `HOME`,
+`XDG_CACHE_HOME` and `npm_config_cache` into the workspace before running package
+managers, and use npm rather than pnpm for installing.
 
 `pnpm` is also wired (`pnpm-workspace.yaml` sets `verifyDepsBeforeRun: false`), but npm
 is the source of truth: `package-lock.json` is authoritative.

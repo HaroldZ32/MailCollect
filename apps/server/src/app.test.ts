@@ -63,7 +63,7 @@ const call = (path: string, init: RequestInit = {}): Promise<Response> => {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${TOKEN}`);
   if (init.body) headers.set("content-type", "application/json");
-  return app.request(path, { ...init, headers });
+  return Promise.resolve(app.request(path, { ...init, headers }));
 };
 
 beforeEach(async () => {
@@ -244,5 +244,19 @@ describe("http api", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("not_found");
+  });
+
+  it("exposes the ordered change stream as the cloud-sync seam", async () => {
+    const all = await call("/api/sync/changes?since=0");
+    expect(all.status).toBe(200);
+    const body = (await all.json()) as { head: number; items: Array<{ seq: number }> };
+    expect(body.head).toBeGreaterThan(0);
+    expect(body.items.length).toBeGreaterThan(0);
+    const seqs = body.items.map((row) => row.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+
+    const tail = await call(`/api/sync/changes?since=${body.head}`);
+    const tailBody = (await tail.json()) as { items: unknown[] };
+    expect(tailBody.items).toHaveLength(0);
   });
 });

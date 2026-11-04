@@ -13,6 +13,7 @@ import type {
   LlmTestInput,
   LlmConfigInput,
   ServerEvent,
+  SyncChangesResponse,
   TaskListResponse,
   UpdateTaskInput,
   UpsertProfileInput,
@@ -295,6 +296,18 @@ export function createApp(options: AppOptions): Hono {
       });
     });
     return c.json({ ok: true });
+  });
+
+  /* ------------------------- cloud-sync seam (R7) --------------------------- */
+
+  app.get(`${API_PREFIX}/sync/changes`, (c) => {
+    const since = Number(c.req.query("since") ?? "0");
+    const limit = Math.min(Math.max(Number(c.req.query("limit") ?? "500"), 1), 2000);
+    const body: SyncChangesResponse = {
+      head: store.head(),
+      items: store.changes(Number.isFinite(since) ? since : 0, limit),
+    };
+    return c.json(body);
   });
 
   /* ----------------------------------- sse ---------------------------------- */

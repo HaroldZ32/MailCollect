@@ -3,7 +3,7 @@
 ## 0. Research Log
 
 - Embedded refs: 设计方向由用户亲自指定（`docs/requirements.md` §4：圆角矩形 + 毛玻璃 + 浅蓝基底），
-  作为视觉契约直接采纳；Layer B 品牌参考库仅挂载了索引与 asis 单文件，未挂载 taste 风格库，
+  作为视觉契约直接采纳；Layer B 品牌参考库只挂载了索引与 `aside.md` 单文件，未挂载 taste 风格库，
   因此不套用其他品牌 Token —— 记录为一次有意的替代（substitution），不是遗漏。
 - Lazyweb / Imagen: 跳过 —— 本机无浏览器与图像生成工具，且用户已给出完整 Token 契约。
 - 参考实现约束: dhtmlx-gantt 10 Community（MIT）只在 Community 能力内定制，PRO 专属

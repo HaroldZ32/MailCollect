@@ -44,7 +44,10 @@ export function findIdentityHits(text: string, profile: UserProfile): IdentityHi
   };
 
   const compactHaystack = compactText(text);
-  const lowerHaystack = normalizeText(text).toLowerCase();
+  // ASCII 名字需要词边界，但去掉空白后边界会丢（"ask Li now" → "asklinow"），
+  // 所以保留单空格的归一形态另外算一份。
+  const spacedHaystack = normalizeText(text).toLowerCase();
+  const lowerHaystack = spacedHaystack;
 
   for (const email of profile.emails) {
     const needle = email.trim().toLowerCase();
@@ -56,12 +59,12 @@ export function findIdentityHits(text: string, profile: UserProfile): IdentityHi
     ...profile.aliases.map((alias): [IdentityHitKind, string] => ["alias", alias]),
   ];
   for (const [kind, name] of names) {
-    if (nameAppears(compactHaystack, name)) push(kind, name.trim());
+    if (nameAppears(spacedHaystack, compactHaystack, name)) push(kind, name.trim());
   }
 
   for (const email of profile.emails) {
     const localPart = (email.split("@")[0] ?? "").trim();
-    if (localPart.length >= 3 && wordAppears(compactHaystack, compactText(localPart))) {
+    if (localPart.length >= 3 && wordAppears(spacedHaystack, localPart.toLowerCase())) {
       push("email-local", localPart);
     }
   }
@@ -85,11 +88,12 @@ export function describeIdentityMentions(text: string, profile: UserProfile): st
  * ASCII 名字要求词边界（"Li" 不该命中 "Lion"）；
  * 含非 ASCII 字符的名字（中文等）按子串匹配，因为中文句子没有词边界。
  */
-function nameAppears(compactHaystack: string, name: string): boolean {
-  const needle = compactText(name);
-  if (needle.length < 2) return false;
-  if (/^[\x20-\x7e]+$/.test(needle)) return wordAppears(compactHaystack, needle);
-  return compactHaystack.includes(needle);
+function nameAppears(spacedHaystack: string, compactHaystack: string, name: string): boolean {
+  const raw = normalizeText(name).toLowerCase();
+  const compacted = compactText(name);
+  if (compacted.length < 2) return false;
+  if (/^[\x20-\x7e]+$/.test(compacted)) return wordAppears(spacedHaystack, raw);
+  return compactHaystack.includes(compacted);
 }
 
 function wordAppears(compactHaystack: string, needle: string): boolean {

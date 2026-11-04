@@ -58,47 +58,52 @@ check("已确认数量 +1", confirmedBefore !== confirmedAfter, `${confirmedBefo
 // ---- timeline: drag + resize + zoom
 await nav("时间线");
 await page.locator(".gantt_task_line").first().waitFor({ timeout: 20000 });
-await page.waitForTimeout(800);
+await page.waitForTimeout(900);
 
-const gridText = async () => (await page.locator(".gantt_grid_data").innerText()).replace(/\s+/g, " ");
-const rowText = async (index) => (await page.locator(".gantt_grid_data .gantt_row").nth(index).innerText()).replace(/\s+/g, " ");
+const TITLE = "确定合同评审会时间";
+const rowOf = () => page.locator(".gantt_grid_data .gantt_row").filter({ hasText: TITLE }).first();
+const rowText = async () => (await rowOf().innerText()).replace(/\s+/g, " ");
+const barIndex = async () =>
+  page.locator(".gantt_grid_data .gantt_row").evaluateAll(
+    (nodes, needle) => nodes.findIndex((node) => (node.textContent ?? "").includes(needle)),
+    TITLE,
+  );
+const barOf = async () => page.locator(".gantt_task_line").nth(await barIndex());
 
-const beforeRow = await rowText(2);
-const firstWindow = page.locator(".gantt_task_line.mc-bar--window").first();
-const box = await firstWindow.boundingBox();
+const beforeRow = await rowText();
+const box = await (await barOf()).boundingBox();
 check("时间线存在窗口条", box !== null, box === null ? "none" : `w=${Math.round(box.width)}`);
 if (box !== null) {
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
-  await page.mouse.move(cx + 70, cy, { steps: 12 });
+  await page.mouse.move(cx + 80, cy, { steps: 14 });
   await page.mouse.up();
   await page.waitForTimeout(900);
-  const afterRow = await rowText(2);
+  const afterRow = await rowText();
+  const movedBox = await (await barOf()).boundingBox();
   check("拖拽窗口条改期", beforeRow !== afterRow, `${beforeRow} -> ${afterRow}`);
-  const moved = await page.locator(".gantt_task_line.mc-bar--window").first().boundingBox();
-  check("拖拽后条位置右移", moved !== null && moved.x > box.x + 30, moved === null ? "none" : `${Math.round(box.x)} -> ${Math.round(moved.x)}`);
+  check("拖拽后条位置右移", movedBox !== null && movedBox.x > box.x + 30, `${Math.round(box.x)} -> ${movedBox === null ? "?" : Math.round(movedBox.x)}`);
 }
 
-const target = page.locator(".gantt_task_line.mc-bar--window").first();
-const beforeResize = await rowText(2);
-const resizeBox = await target.boundingBox();
-if (resizeBox !== null) {
-  const edgeX = resizeBox.x + resizeBox.width - 2;
-  const edgeY = resizeBox.y + resizeBox.height / 2;
-  await page.mouse.move(edgeX, edgeY);
+const resizeBar = await barOf();
+const resizeBox = await resizeBar.boundingBox();
+const beforeResize = await rowText();
+await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
+await page.waitForTimeout(350);
+const rightHandle = await resizeBar.locator(".gantt_task_drag.task_right").boundingBox();
+if (rightHandle !== null && rightHandle.width > 0) {
+  await page.mouse.move(rightHandle.x + rightHandle.width / 2, rightHandle.y + rightHandle.height / 2);
   await page.mouse.down();
-  await page.mouse.move(edgeX + 60, edgeY, { steps: 10 });
+  await page.mouse.move(rightHandle.x + rightHandle.width / 2 + 70, rightHandle.y + rightHandle.height / 2, { steps: 12 });
   await page.mouse.up();
   await page.waitForTimeout(900);
-  const afterResize = await rowText(2);
-  const widened = await target.boundingBox();
-  check(
-    "拖右手柄改时长",
-    afterResize !== beforeResize,
-    `${beforeResize} -> ${afterResize} w=${widened === null ? "?" : Math.round(widened.width)}`,
-  );
+  const afterResize = await rowText();
+  const resizedBox = await (await barOf()).boundingBox();
+  check("拖右手柄改时长", afterResize !== beforeResize && resizedBox.width > resizeBox.width + 20, `${beforeResize} -> ${afterResize} w=${Math.round(resizeBox.width)}->${Math.round(resizedBox.width)}`);
+} else {
+  check("拖右手柄改时长", false, "右键手柄未出现");
 }
 
 const todayVisibleBefore = await page.locator(".gantt-today-line").isVisible();
@@ -117,7 +122,9 @@ await page.waitForTimeout(500);
 const duePins = await page.locator(".gantt-due-pin").evaluateAll((nodes) =>
   nodes.filter((node) => getComputedStyle(node).display !== "none").length,
 );
-check("到期点可见", duePins === 4, `pins=${duePins}`);
+check("到期点可见（含群发确认后的 5 条）", duePins === 5, `pins=${duePins}`);
+const gridStart = await page.locator(".gantt_grid_data .gantt_row").first().innerText();
+check("到期行开始列显示 —", gridStart.includes("—"), gridStart.replace(/\s+/g, " "));
 
 // ---- settings
 await nav("设置");

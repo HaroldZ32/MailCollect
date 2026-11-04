@@ -331,15 +331,6 @@ a {
   font-size: 10.5px;
 }
 
-.conn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 7px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
 .conn-dot {
   width: 7px;
   height: 7px;
@@ -1436,15 +1427,12 @@ a {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  height: 100%;
-  min-height: 0;
 }
 
 .timeline-card {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -1544,8 +1532,7 @@ a {
 }
 
 .gantt-host {
-  flex: 1;
-  min-height: 360px;
+  min-height: 300px;
   position: relative;
 }
 
@@ -1675,8 +1662,8 @@ a {
 }
 
 .gantt_task_line.mc-bar--due {
-  background: linear-gradient(90deg, rgba(228, 112, 95, 0.18), rgba(228, 112, 95, 0.62));
-  box-shadow: 0 4px 12px rgba(228, 112, 95, 0.2);
+  background: linear-gradient(90deg, rgba(228, 112, 95, 0.16), rgba(228, 112, 95, 0.55));
+  box-shadow: 0 3px 8px rgba(228, 112, 95, 0.14);
 }
 
 .gantt_task_line.mc-bar--due .gantt_task_content {
@@ -1746,7 +1733,7 @@ a {
   position: absolute;
   display: none;
   width: 0;
-  border-left: 1.5px dashed rgba(228, 112, 95, 0.42);
+  border-left: 1px dashed rgba(228, 112, 95, 0.5);
   transform: translateX(-50%);
 }
 
@@ -1754,12 +1741,12 @@ a {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   transform: translate(-50%, -50%) rotate(45deg);
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--today);
-  box-shadow: 0 0 0 3px rgba(228, 112, 95, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.92);
 }
 
 .gantt_drag_marker {
@@ -2120,26 +2107,6 @@ a {
   justify-content: center;
 }
 
-.page-scroll--fixed {
-  overflow: auto;
-}
-
-.page--full {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  max-width: none;
-}
-
-.page--full > * {
-  flex: 1;
-  min-height: 0;
-}
-
-.timeline-card {
-  min-height: 440px;
-}
-
 /* --------------------------- animations ------------------------------- */
 
 @keyframes rise {
@@ -2326,18 +2293,6 @@ a {
 
   .page-title {
     font-size: 22px;
-  }
-
-  .timeline {
-    height: auto;
-  }
-
-  .timeline-card {
-    min-height: 560px;
-  }
-
-  .gantt-host {
-    min-height: 420px;
   }
 
   .topbar {

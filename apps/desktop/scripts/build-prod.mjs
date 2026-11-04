@@ -38,6 +38,10 @@ await build({
 // 3) Main + preload.
 await run(process.execPath, [join(here, "build-main.mjs")], here);
 
+// 3.5) The SQLite schema is read at runtime via import.meta.url, so it must sit
+//      next to the bundle — esbuild does not copy non-JS assets.
+cpSync(join(repo, "packages", "core", "src", "store", "schema.sql"), join(out, "schema.sql"));
+
 // 4) Ship the built UI next to the app so the server can serve it.
 const uiOut = join(here, "..", "ui");
 rmSync(uiOut, { recursive: true, force: true });

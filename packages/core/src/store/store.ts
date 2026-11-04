@@ -7,6 +7,10 @@ import type {
   ChangeOp,
   CreateAccountInput,
   EmailListQuery,
+  LlmConfig,
+  LlmConfigInput,
+  LlmConfigView,
+  LlmProtocol,
   RawEmail,
   SyncCursor,
   Task,
@@ -27,6 +31,7 @@ import {
   toVerdict,
   type AccountRow,
   type EmailRow,
+  type LlmConfigRow,
   type ProfileRow,
   type TaskRow,
   type VerdictRow,
@@ -467,5 +472,99 @@ export class Store {
       if (task) updated.push(task);
     }
     return updated;
+  }
+
+  /* ----------------------------------- llm --------------------------------- */
+
+  private static toLlmConfig(row: LlmConfigRow): LlmConfig {
+    return {
+      id: row.id,
+      label: row.label,
+      protocol: row.protocol as LlmProtocol,
+      baseUrl: row.base_url,
+      model: row.model,
+      apiKeyRef: row.api_key_cipher ? "stored" : null,
+      temperature: row.temperature,
+      maxTokens: row.max_tokens,
+      timeoutMs: row.timeout_ms,
+      isDefault: row.is_default === 1,
+    };
+  }
+
+  listLlmConfigs(): LlmConfigView[] {
+    return this.db
+      .prepare("SELECT * FROM llm_config ORDER BY is_default DESC, created_at ASC")
+      .all<LlmConfigRow>()
+      .map((row) => {
+        const config = Store.toLlmConfig(row);
+        return {
+          id: config.id,
+          label: config.label,
+          protocol: config.protocol,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          hasKey: row.api_key_cipher !== null,
+          isDefault: config.isDefault,
+        };
+      });
+  }
+
+  /** Returns a config plus its DECRYPTED key. Only the extraction engine may call this. */
+  getLlmWithKey(id?: string): { config: LlmConfig; apiKey: string | null } | null {
+    const row = id
+      ? this.db.prepare("SELECT * FROM llm_config WHERE id = ?").get<LlmConfigRow>(id)
+      : this.db
+          .prepare("SELECT * FROM llm_config ORDER BY is_default DESC, created_at ASC LIMIT 1")
+          .get<LlmConfigRow>();
+    if (!row) return null;
+    return {
+      config: Store.toLlmConfig(row),
+      apiKey: row.api_key_cipher ? decryptSecret(this.key, row.api_key_cipher) : null,
+    };
+  }
+
+  upsertLlmConfig(input: LlmConfigInput): LlmConfigView {
+    const id = randomUUID();
+    const now = nowIso();
+    const isDefault = input.isDefault ?? this.listLlmConfigs().length === 0;
+    if (isDefault) this.db.prepare("UPDATE llm_config SET is_default = 0").run();
+    this.db
+      .prepare(
+        `INSERT INTO llm_config (id, label, protocol, base_url, model, api_key_cipher,
+                                 temperature, max_tokens, timeout_ms, is_default, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.label,
+        input.protocol,
+        input.baseUrl,
+        input.model,
+        input.apiKey ? encryptSecret(this.key, input.apiKey) : null,
+        input.temperature ?? 0.2,
+        input.maxTokens ?? 2048,
+        60_000,
+        bit(isDefault),
+        now,
+      );
+    const view = this.listLlmConfigs().find((item) => item.id === id);
+    if (!view) throw new Error("llm config write failed");
+    this.log("llm_config", id, "insert", view);
+    return view;
+  }
+
+  setDefaultLlmConfig(id: string): boolean {
+    const exists = this.db.prepare("SELECT id FROM llm_config WHERE id = ?").get<{ id: string }>(id);
+    if (!exists) return false;
+    this.db.prepare("UPDATE llm_config SET is_default = 0").run();
+    this.db.prepare("UPDATE llm_config SET is_default = 1 WHERE id = ?").run(id);
+    this.log("llm_config", id, "update", { id, isDefault: true });
+    return true;
+  }
+
+  deleteLlmConfig(id: string): boolean {
+    const result = this.db.prepare("DELETE FROM llm_config WHERE id = ?").run(id);
+    if (result.changes > 0) this.log("llm_config", id, "delete", { id });
+    return result.changes > 0;
   }
 }

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "taskId": "T1",
+  "subject": "邮件适配器：IMAP / POP3 / Microsoft Graph",
+  "description": "实现 packages/core/src/mail/{imap,pop3,graph,index}.ts + 单测，严格实现已冻结的 MailSource 接口。\n\n验收：\n1. pnpm --filter @mailcollect/core exec tsc --noEmit 通过\n2. pnpm --filter @mailcollect/core test 通过\n3. 覆盖：首次同步窗口上限、增量游标推进、UIDVALIDITY 变化重置、POP3 UIDL 去重、错误码映射、POP3 watch 返回 null\n4. 日志与返回值中不出现 secret\n5. 不修改 packages/core/src/mail/types.ts",
+  "blockedBy": [],
+  "writeScopes": [
+    "packages/core/src/mail/"
+  ],
+  "attempt": 1,
+  "claimedBy": "4c7adb2a-9cca-4a86-bc69-1e56a10806a3",
+  "claimedAt": "2026-11-04T02:37:54.791Z",
+  "revision": 2
+}

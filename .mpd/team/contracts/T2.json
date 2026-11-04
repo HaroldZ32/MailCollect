@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "taskId": "T2",
+  "subject": "抽取流水线：多 LLM 端口 / 剥引文 / 群发判定 / 时间解析",
+  "description": "实现 packages/core/src/pipeline/** 与 packages/core/src/llm/**。\n\n验收：\n1. pnpm --filter @mailcollect/core exec tsc --noEmit 通过\n2. pnpm --filter @mailcollect/core test 通过\n3. 5 个端到端样本用例（点名任务 / 群发通知 / 纯广告 / 含硬截止 / 含时段）的 owner 与 broadcast 判定正确\n4. 空响应 → LlmError(blank_response)，绝不返回 noTasks\n5. 时间只用 chrono-node 确定性解析，模型不参与日期运算\n6. 无 import ../store/**",
+  "blockedBy": [],
+  "writeScopes": [
+    "packages/core/src/pipeline/",
+    "packages/core/src/llm/"
+  ],
+  "attempt": 1,
+  "claimedBy": "96029026-4892-41b7-bba1-06bd613ccd62",
+  "claimedAt": "2026-11-04T02:37:49.988Z",
+  "revision": 2
+}

@@ -61,5 +61,40 @@
       "owner": "ui-engineer"
     }
   ],
-  "stagedAt": "2026-11-04T02:31:49.519Z"
+  "stagedAt": "2026-11-04T02:31:49.519Z",
+  "approvedAt": "2026-11-04T02:37:32.961Z",
+  "created": {
+    "members": [
+      {
+        "name": "senior-engineer-1",
+        "id": "4c7adb2a-9cca-4a86-bc69-1e56a10806a3"
+      },
+      {
+        "name": "pipeline-engineer",
+        "id": "96029026-4892-41b7-bba1-06bd613ccd62"
+      },
+      {
+        "name": "ui-engineer",
+        "id": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f"
+      },
+      {
+        "name": "verifier",
+        "id": "6ed56b36-6042-4b5a-b956-c9b348ce4df7"
+      }
+    ],
+    "tasks": [
+      {
+        "subject": "邮件适配器：IMAP / POP3 / Microsoft Graph",
+        "id": "T1"
+      },
+      {
+        "subject": "抽取流水线：多 LLM 端口 / 剥引文 / 群发判定 / 时间解析",
+        "id": "T2"
+      },
+      {
+        "subject": "界面：圆角毛玻璃浅蓝设计系统 + 收件箱/待办/甘特图/设置",
+        "id": "T3"
+      }
+    ]
+  }
 }

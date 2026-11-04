@@ -83,6 +83,20 @@ export interface VerdictRow {
   signals_json: string;
 }
 
+export interface LlmConfigRow {
+  id: string;
+  label: string;
+  protocol: string;
+  base_url: string;
+  model: string;
+  api_key_cipher: string | null;
+  temperature: number;
+  max_tokens: number;
+  timeout_ms: number;
+  is_default: number;
+  created_at: string;
+}
+
 const parseArray = (json: string): string[] => {
   try {
     const value: unknown = JSON.parse(json);

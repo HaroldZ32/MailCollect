@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "taskId": "T3",
+  "subject": "界面：圆角毛玻璃浅蓝设计系统 + 收件箱/待办/甘特图/设置",
+  "description": "实现 apps/ui/**：圆角毛玻璃浅蓝设计系统 + 收件箱 / 待办 / 时间线（hannon图）/ 设置四个页面。\n\n验收：\n1. pnpm --filter @mailcollect/ui exec tsc --noEmit 通过\n2. pnpm --filter @mailcollect/ui build 通过\n3. 服务端不可达时，用 mock 数据完整演示四个页面\n4. dhtmlx-gantt@10 可拖拽改期、可缩放改时长、有今日线、有到期标记\n5. 设计硬指标：卡片 20px 圆角、backdrop-filter blur(18px)、底色 #EEF5FD→#DBEAFE、主色 #2F7CF6、无纯白大背景/粗黑边框\n6. 只调用 packages/shared/src/api.ts 里定义的接口",
+  "blockedBy": [],
+  "writeScopes": [
+    "apps/ui/"
+  ],
+  "attempt": 1,
+  "claimedBy": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+  "claimedAt": "2026-11-04T02:37:48.868Z",
+  "revision": 2
+}

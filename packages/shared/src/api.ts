@@ -141,6 +141,28 @@ export interface LlmTestResponse {
   detail: string;
 }
 
+export interface LlmConfigInput {
+  label: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  /** Only sent when the user types a key; never returned by the server. */
+  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+  isDefault?: boolean;
+}
+
+export interface LlmConfigView {
+  id: string;
+  label: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+  isDefault: boolean;
+}
+
 /* ----------------------------------- sync ----------------------------------- */
 
 export interface SyncRequest {

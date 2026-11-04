@@ -1,17 +1,14 @@
-<!-- Generated once by mpd-project-init (my-power-dsh) on 2026-11-04T02:11:40.993Z.
-     This file is a starting point: edit it freely. The plugin never overwrites it,
-     and it will not create another instruction file in this workspace. -->
-
 # AGENT.md
 
-Operating instructions for any AI agent working in this repository. Replace every
-`<fill in: ...>` placeholder with this project's real value; never guess one.
+Operating instructions for any AI agent working in this repository.
 
 ## 1. Read first
 
-- At the start of every session, read this file, then the paths it names below.
-- Prefer this repository's own docs, tests and build files over assumptions. When a
-  document and the code disagree, report the conflict instead of silently picking one.
+- `docs/requirements.md` — requirements and the measurable acceptance criteria.
+- `.mpd/plans/001-mvp.md` — architecture, data flow and the FROZEN contracts.
+- `packages/shared/src/{domain,extraction,api}.ts` — the contracts themselves.
+- Prefer this repository's own docs and tests over assumptions. When a document and
+  the code disagree, report the conflict instead of silently picking one.
 
 ## 2. Plan before acting
 
@@ -24,21 +21,31 @@ Operating instructions for any AI agent working in this repository. Replace ever
 - Make the smallest change that satisfies the request; no drive-by refactors and no
   reformatting of code you did not need to touch.
 - Match the style, naming and structure already in the tree.
+- One lane per directory. Never edit another lane's files; report the finding instead.
 
 ## 4. Commands
 
-Fill in the real commands for this project:
+Run from the repository root.
 
-- Install dependencies: `<fill in: e.g. bun install>`
-- Build: `<fill in: the build command>`
-- Test: `<fill in: the test command>`
-- Type check and lint: `<fill in: the typecheck/lint command>`
-- Format: `<fill in: the formatter command>`
+- Install dependencies: `npm install`
+- Dev (UI only, browser): `npm run dev`
+- Dev (API server only): `npm run dev:server`
+- Dev (full desktop app): `npm run dev:desktop`
+- Build: `npm run build`
+- Test: `npm test`
+- Type check: `npm run typecheck`
+- Single package: `npm run typecheck -w @mailcollect/core` (same shape for `test` / `build`)
+- Format: none configured yet — match the surrounding style by hand.
+
+`pnpm` is also wired (`pnpm-workspace.yaml` sets `verifyDepsBeforeRun: false`), but npm
+is the source of truth: `package-lock.json` is authoritative.
 
 ## 5. Verification
 
 - Re-run the checks that cover your change and quote the observed output.
 - Never edit a test or a gate to make a change pass; fix the cause or report the defect.
+- A change written by one agent is verified by a DIFFERENT agent from the frozen
+  contract, never from the author's reasoning.
 
 ## 6. Git discipline
 
@@ -48,12 +55,15 @@ Fill in the real commands for this project:
   unverified bound.
 - One writer per working tree; never rewrite published history.
 
-## 7. Delegation and evidence
+## 7. Architecture invariants
 
-- Split large work into bounded tasks with a written contract and a separate review.
-- Keep requirement, implementation and review as separate records.
-- Record evidence (command, observed result, path) on disk; a claim without evidence is
-  incomplete.
+- `shared ← core ← server ← desktop`, and `ui → shared(types only)`. No reverse edges.
+- The UI talks to the service over HTTP/SSE only. There is no second transport.
+- No native modules: SQLite goes through Node's built-in `node:sqlite`, so the same
+  code runs in Electron and in a plain `node` server.
+- Secrets are AES-256-GCM encrypted at rest (`packages/core/src/store/crypto.ts`) and
+  must never appear in logs, API responses or error messages.
+- Every write appends to `change_log`; that table is the reserved cloud-sync seam.
 
 ## 8. Security
 

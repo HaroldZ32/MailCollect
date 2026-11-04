@@ -1,0 +1,23 @@
+{
+  "team-20261104023732630-82ss-002::T1": {
+    "teamId": "team-20261104023732630-82ss-002",
+    "taskId": "T1",
+    "memberId": "4c7adb2a-9cca-4a86-bc69-1e56a10806a3",
+    "memberName": "senior-engineer-1",
+    "assignedAt": "2026-11-04T02:37:41.089Z"
+  },
+  "team-20261104023732630-82ss-002::T2": {
+    "teamId": "team-20261104023732630-82ss-002",
+    "taskId": "T2",
+    "memberId": "96029026-4892-41b7-bba1-06bd613ccd62",
+    "memberName": "pipeline-engineer",
+    "assignedAt": "2026-11-04T02:37:41.090Z"
+  },
+  "team-20261104023732630-82ss-002::T3": {
+    "teamId": "team-20261104023732630-82ss-002",
+    "taskId": "T3",
+    "memberId": "b24fbc4e-f58c-47ce-8af6-2f05d40ee85f",
+    "memberName": "ui-engineer",
+    "assignedAt": "2026-11-04T02:37:41.091Z"
+  }
+}

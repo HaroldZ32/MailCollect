@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.mjs",
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
-    "build:main": "tsc -p tsconfig.json",
-    "build": "tsc -p tsconfig.json && electron-builder",
+    "dev": "node scripts/dev.mjs",
+    "build:main": "node scripts/build-main.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

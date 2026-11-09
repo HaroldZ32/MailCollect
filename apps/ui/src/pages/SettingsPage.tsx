@@ -1,28 +1,44 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import type {
+  ACCOUNT_DISPLAY_NAME_MAX_LENGTH,
+  ACCOUNT_SIGNATURE_MAX_LENGTH,
+  AccountSendConfig,
+  AccountSendInput,
   AccountView,
   CreateAccountInput,
+  InitState,
   LlmConfigInput,
   LlmConfigView,
   LlmProtocol,
   LlmTestInput,
   LlmTestResponse,
+  MailAuthMode,
   MailProvider,
   UpsertProfileInput,
   UserProfile,
   VerifyAccountResponse,
 } from "@mailcollect/shared";
 import {
+  api,
   apiBaseLabel,
   clearStoredToken,
   hasInjectedRuntime,
   hasStoredToken,
+  isApiError,
   storeToken,
+  type ClearableAccountSendInput,
 } from "../lib/api";
 import { formatDateTime, hueFor, initials } from "../lib/format";
 import { GlassCard } from "../components/GlassCard";
 import { Icon } from "../components/Icon";
+import {
+  DATA_CHANGED_EVENT,
+  ONBOARDING_CHANGED_EVENT,
+  notifyDataChanged,
+  requestShellRoute,
+  type DataChangedScope,
+} from "../components/OnboardingWizard";
 import type { ConnectionMode, SaveResult } from "../lib/useMailData";
 
 const TIMEZONES: readonly string[] = [
@@ -44,12 +60,36 @@ const PROVIDER_LABEL: Record<MailProvider, string> = {
   imap: "IMAP",
   pop3: "POP3",
   graph: "Microsoft Graph",
+  ews: "Exchange (EWS)",
 };
 
 const DEFAULT_PORT: Record<MailProvider, string> = {
   imap: "993",
   pop3: "995",
   graph: "",
+  // 本地 Exchange 没有可填的入站端口：EWS 走 https 端点（隐式 TLS 443），
+  // 端口由 ewsUrl 决定，所以这里留空而不是猜 25/587。
+  ews: "",
+};
+
+/**
+ * 签名 / 显示名长度上限：数值来自 shared 的 `ACCOUNT_SIGNATURE_MAX_LENGTH` /
+ * `ACCOUNT_DISPLAY_NAME_MAX_LENGTH`（服务端校验用同一常量）。这里用 `typeof`
+ * 标注而不是运行时 import —— `ui → shared(types only)`（AGENTS.md §7），
+ * 而 shared 一旦改数值，下面两行就会在 typecheck 里报错，不会悄悄漂移。
+ */
+const SIGNATURE_MAX_LENGTH: typeof ACCOUNT_SIGNATURE_MAX_LENGTH = 2000;
+const DISPLAY_NAME_MAX_LENGTH: typeof ACCOUNT_DISPLAY_NAME_MAX_LENGTH = 200;
+
+/** SMTP 发信端口的两个标准档位（与 core/account.ts 的推断一致）。 */
+const SMTP_PORT_IMPLICIT_TLS = "465";
+const SMTP_PORT_STARTTLS = "587";
+
+const AUTH_MODE_LABEL: Record<MailAuthMode, string> = {
+  password: "密码（Basic）",
+  ntlm: "NTLM",
+  oauth2: "OAuth2",
+  "device-code": "设备码",
 };
 
 interface LlmPreset {
@@ -141,6 +181,7 @@ function buildAccountConfig(
     if (tenant.trim() !== "") config["tenant"] = tenant.trim();
     return config;
   }
+  if (provider === "ews") return {};
   const config: Record<string, string> = {
     host: host.trim(),
     user: user.trim() === "" ? email : user.trim(),
@@ -149,6 +190,349 @@ function buildAccountConfig(
   if (port.trim() !== "") config["port"] = port.trim();
   if (provider === "imap") config["tls"] = "true";
   return config;
+}
+
+/** 发信聚合草稿：全部字段来自表单，密码只在这里短暂停留，保存后立即清空。 */
+interface SendDraft {
+  readonly smtpHost: string;
+  readonly smtpPort: string;
+  readonly smtpSecure: boolean;
+  readonly smtpUser: string;
+  readonly smtpPassword: string;
+  readonly ewsUrl: string;
+  readonly authMode: MailAuthMode;
+  /** 纯文本签名；空串 = 清除（PATCH 写 null）。 */
+  readonly signature: string;
+  /** From 显示名；空串 = 清除（PATCH 写 null）。 */
+  readonly displayName: string;
+}
+
+const EMPTY_SEND_DRAFT: SendDraft = {
+  smtpHost: "",
+  smtpPort: "",
+  smtpSecure: true,
+  smtpUser: "",
+  smtpPassword: "",
+  ewsUrl: "",
+  authMode: "password",
+  signature: "",
+  displayName: "",
+};
+
+/**
+ * 发信字段 → `AccountSendInput`。非密文字段同时进 `config`（由 store 合并），
+ * 密码只走 `smtpPassword` 的加密列，绝不写进 config、也绝不回显。
+ * 全空时返回 undefined，避免给纯收信账号写一堆空字段。
+ */
+function buildSendInput(
+  provider: MailProvider,
+  draft: SendDraft,
+): { readonly send: AccountSendInput | undefined; readonly error: string | null } {
+  const smtpHost = draft.smtpHost.trim();
+  const smtpUser = draft.smtpUser.trim();
+  const ewsUrl = draft.ewsUrl.trim();
+  const rawPort = draft.smtpPort.trim();
+
+  let smtpPort: number | undefined;
+  if (rawPort !== "") {
+    const parsed = Number.parseInt(rawPort, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535 || String(parsed) !== rawPort) {
+      return { send: undefined, error: "SMTP 端口必须是 1-65535 之间的整数" };
+    }
+    smtpPort = parsed;
+  }
+
+  const send: AccountSendInput = {};
+  if (smtpHost !== "") send.smtpHost = smtpHost;
+  if (smtpPort !== undefined) send.smtpPort = smtpPort;
+  if (smtpHost !== "") send.smtpSecure = draft.smtpSecure;
+  if (smtpUser !== "") send.smtpUser = smtpUser;
+  if (draft.smtpPassword !== "") send.smtpPassword = draft.smtpPassword;
+  if (ewsUrl !== "") send.ewsUrl = ewsUrl;
+  if (provider === "ews" || smtpHost !== "") send.authMode = draft.authMode;
+  // 身份文本：非空才带（创建路径不带清除语义）。
+  if (draft.signature.trim() !== "") send.signature = draft.signature;
+  if (draft.displayName.trim() !== "") send.displayName = draft.displayName;
+
+  return { send: Object.keys(send).length === 0 ? undefined : send, error: null };
+}
+
+/**
+ * PATCH 用的身份载荷：空串显式写 `null`（服务端「null = 清除」→ 落空串 → 读回 null），
+ * 与读回语义一致；只有非空才写文本。连接字段沿用 `buildSendInput` 的结果。
+ */
+function withClearableIdentity(
+  base: AccountSendInput | undefined,
+  draft: SendDraft,
+): ClearableAccountSendInput {
+  const signature = draft.signature.trim();
+  const displayName = draft.displayName.trim();
+  return {
+    ...(base ?? {}),
+    signature: signature === "" ? null : signature,
+    displayName: displayName === "" ? null : displayName,
+  };
+}
+
+function describeFailure(error: unknown): string {
+  if (isApiError(error)) return error.message;
+  if (error instanceof Error) return error.message;
+  return "未知错误";
+}
+
+/** 本地已保存的发信视图：`undefined` = 没有本地覆盖，`null` = 已清空。 */
+function currentSend(
+  account: AccountView,
+  override: AccountSendConfig | null | undefined,
+): AccountSendConfig | null {
+  return override === undefined ? (account.send ?? null) : override;
+}
+
+/** 身份覆盖：PATCH 成功后立即生效的本地快照（避免依赖 props 刷新时机）。 */
+interface IdentitySnapshot {
+  readonly signature: string | null;
+  readonly displayName: string | null;
+}
+
+/** 服务端返回的账号视图 → 编辑草稿；密码位置永远留空，签名/显示名取自读回值。 */
+function sendDraftFrom(
+  account: AccountView,
+  sendOverride: AccountSendConfig | null | undefined,
+  identityOverride: IdentitySnapshot | undefined,
+): SendDraft {
+  const send = currentSend(account, sendOverride);
+  const identity: IdentitySnapshot = identityOverride ?? {
+    signature: account.signature ?? null,
+    displayName: account.displayName ?? null,
+  };
+  return {
+    smtpHost: send?.smtpHost ?? "",
+    smtpPort: send?.smtpPort === null || send?.smtpPort === undefined ? "" : String(send.smtpPort),
+    smtpSecure: send?.smtpSecure ?? true,
+    smtpUser: send?.smtpUser ?? "",
+    smtpPassword: "",
+    ewsUrl: send?.ewsUrl ?? "",
+    authMode: send?.authMode ?? "password",
+    signature: identity.signature ?? "",
+    displayName: identity.displayName ?? "",
+  };
+}
+
+function sendSummary(
+  account: AccountView,
+  override: AccountSendConfig | null | undefined,
+  identity: IdentitySnapshot | undefined,
+): string {
+  const send = currentSend(account, override);
+  const parts: string[] = [];
+  if (send !== null && send.ewsUrl !== null) parts.push(`EWS ${send.ewsUrl}`);
+  if (send !== null && send.smtpHost !== null) {
+    const port = send.smtpPort ?? (send.smtpSecure ? SMTP_PORT_IMPLICIT_TLS : SMTP_PORT_STARTTLS);
+    parts.push(`SMTP ${send.smtpHost}:${port}`);
+  }
+  // 「发信已配置」只看连接字段：仅填签名/显示名不算配好连接。
+  const connection =
+    parts.length === 0
+      ? "发信：未配置（只收不发）"
+      : `发信：${parts.join(" · ")} · 认证 ${AUTH_MODE_LABEL[send?.authMode ?? "password"]} · ${
+          account.hasSmtpPassword === true ? "SMTP 密码已保存" : "缺 SMTP 密码"
+        }`;
+  const signature = identity === undefined ? (account.signature ?? null) : identity.signature;
+  const displayName = identity === undefined ? (account.displayName ?? null) : identity.displayName;
+  const identityText = `签名 ${signature === null || signature.trim() === "" ? "未设置" : `${signature.length} 字`} · 显示名 ${
+    displayName === null || displayName.trim() === "" ? "账号地址" : displayName
+  }`;
+  return `${connection} · ${identityText}`;
+}
+
+interface SendDraftFormProps {
+  readonly draft: SendDraft;
+  readonly provider: MailProvider;
+  readonly idPrefix: string;
+  readonly onChange: (next: SendDraft) => void;
+}
+
+/**
+ * 发信字段控件：创建账号与「账号内二次编辑」共用同一套控件和文案，
+ * 避免两处各写一遍 SMTP/EWS 字段。密码永远是 `type=password` 且不回填。
+ */
+function SendDraftForm({ draft, provider, idPrefix, onChange }: SendDraftFormProps) {
+  const patch = (next: Partial<SendDraft>): void => onChange({ ...draft, ...next });
+  return (
+    <>
+      {provider === "ews" ? (
+        <>
+          <div className="form-row form-row--full">
+            <label className="field-label" htmlFor={`${idPrefix}-ews-url`}>
+              EWS 端点
+            </label>
+            <input
+              id={`${idPrefix}-ews-url`}
+              className="input"
+              value={draft.ewsUrl}
+              placeholder="https://mail.corp.com/EWS/Exchange.asmx"
+              onChange={(event) => patch({ ewsUrl: event.target.value })}
+            />
+            <span className="field-hint">
+              https 走隐式 TLS（443），端口由端点决定；URL 里不能带用户名或密码——凭据只进加密密文列。
+            </span>
+          </div>
+          <div className="form-row">
+            <label className="field-label" htmlFor={`${idPrefix}-auth-mode`}>
+              认证方式
+            </label>
+            <select
+              id={`${idPrefix}-auth-mode`}
+              className="select"
+              value={draft.authMode}
+              onChange={(event) => patch({ authMode: event.target.value as MailAuthMode })}
+            >
+              <option value="password">密码（Basic）</option>
+              <option value="ntlm">NTLM</option>
+            </select>
+            <span className="field-hint">本地 Exchange 只支持密码 / NTLM；OAuth 走 Graph 账号。</span>
+          </div>
+        </>
+      ) : null}
+
+      {/* 身份设置：签名与显示名是**非密**字段，与发信连接解耦（Graph 账号也适用）。 */}
+      <div className="form-row form-row--full">
+        <span className="field-label">签名与显示名（非密，纯文本）</span>
+        <span className="field-hint">
+          签名由服务端在发送时追加，撰写页的「附加账号签名」勾选只负责开/关；清空并保存会写回 null。
+        </span>
+      </div>
+
+      <div className="form-row">
+        <label className="field-label" htmlFor={`${idPrefix}-display-name`}>
+          From 显示名
+        </label>
+        <input
+          id={`${idPrefix}-display-name`}
+          className="input"
+          value={draft.displayName}
+          placeholder="只填显示名，地址固定为账号地址"
+          maxLength={DISPLAY_NAME_MAX_LENGTH}
+          onChange={(event) => patch({ displayName: event.target.value })}
+        />
+        <span className="field-hint">
+          {draft.displayName.length} / {DISPLAY_NAME_MAX_LENGTH} · 留空则只用账号地址
+        </span>
+      </div>
+
+      <div className="form-row form-row--full">
+        <label className="field-label" htmlFor={`${idPrefix}-signature`}>
+          纯文本签名
+        </label>
+        <textarea
+          id={`${idPrefix}-signature`}
+          className="textarea"
+          value={draft.signature}
+          rows={5}
+          placeholder={"——\n李四\nlisi@corp.example"}
+          maxLength={SIGNATURE_MAX_LENGTH}
+          onChange={(event) => patch({ signature: event.target.value })}
+        />
+        <span className="field-hint">
+          {draft.signature.length} / {SIGNATURE_MAX_LENGTH} · 纯文本，不渲染 HTML；空 = 不追加
+        </span>
+      </div>
+
+      {provider === "graph" ? null : (
+        <>
+      <div className="form-row form-row--full">
+        <span className="field-label">发信（SMTP，可选）</span>
+        <span className="field-hint">
+          {provider === "ews"
+            ? "EWS 端点本身就能发信，SMTP 只是备用通道；"
+            : "IMAP / POP3 必须配 SMTP 才能发信；"}
+          不填就是只收不发，密码与收信密码分开加密。
+        </span>
+      </div>
+
+      <div className="form-row">
+        <label className="field-label" htmlFor={`${idPrefix}-smtp-host`}>
+          SMTP 服务器
+        </label>
+        <input
+          id={`${idPrefix}-smtp-host`}
+          className="input"
+          value={draft.smtpHost}
+          placeholder="smtp.example.com"
+          onChange={(event) => patch({ smtpHost: event.target.value })}
+        />
+      </div>
+
+      <div className="form-row">
+        <label className="field-label" htmlFor={`${idPrefix}-smtp-port`}>
+          SMTP 端口
+        </label>
+        <input
+          id={`${idPrefix}-smtp-port`}
+          className="input"
+          inputMode="numeric"
+          value={draft.smtpPort}
+          placeholder={`${SMTP_PORT_IMPLICIT_TLS}（SSL）/ ${SMTP_PORT_STARTTLS}（STARTTLS）`}
+          onChange={(event) => patch({ smtpPort: event.target.value })}
+        />
+        <label
+          htmlFor={`${idPrefix}-smtp-secure`}
+          style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}
+        >
+          <input
+            id={`${idPrefix}-smtp-secure`}
+            type="checkbox"
+            checked={draft.smtpSecure}
+            onChange={(event) => {
+              const next = event.target.checked;
+              patch({
+                smtpSecure: next,
+                smtpPort:
+                  draft.smtpPort.trim() === ""
+                    ? next
+                      ? SMTP_PORT_IMPLICIT_TLS
+                      : SMTP_PORT_STARTTLS
+                    : draft.smtpPort,
+              });
+            }}
+          />
+          <span className="field-hint">隐式 TLS（465）；取消勾选则按 STARTTLS（587）</span>
+        </label>
+      </div>
+
+      <div className="form-row">
+        <label className="field-label" htmlFor={`${idPrefix}-smtp-user`}>
+          SMTP 用户名
+        </label>
+        <input
+          id={`${idPrefix}-smtp-user`}
+          className="input"
+          value={draft.smtpUser}
+          placeholder="通常与收信用户名相同"
+          autoComplete="off"
+          onChange={(event) => patch({ smtpUser: event.target.value })}
+        />
+      </div>
+
+      <div className="form-row form-row--full">
+        <label className="field-label" htmlFor={`${idPrefix}-smtp-password`}>
+          SMTP 密码
+        </label>
+        <input
+          id={`${idPrefix}-smtp-password`}
+          className="input"
+          type="password"
+          value={draft.smtpPassword}
+          placeholder="只提交一次，保存后不回显"
+          autoComplete="new-password"
+          onChange={(event) => patch({ smtpPassword: event.target.value })}
+        />
+        <span className="field-hint">与收信密码分开加密；接口只返回 hasSmtpPassword 布尔。</span>
+      </div>
+        </>
+      )}
+    </>
+  );
 }
 
 function avatarBackground(seed: string): string {
@@ -211,10 +595,30 @@ export function SettingsPage({
   const [secret, setSecret] = useState("");
   const [clientId, setClientId] = useState("");
   const [tenant, setTenant] = useState("");
+  const [sendDraft, setSendDraft] = useState<SendDraft>(EMPTY_SEND_DRAFT);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverNote, setDiscoverNote] = useState<string | null>(null);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [verifyBusyId, setVerifyBusyId] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Readonly<Record<string, VerifyAccountResponse>>>({});
+
+  // 发信设置的二次编辑（PATCH /accounts/:id）：草稿按账号展开，密码位置永远留空。
+  const [sendEditorId, setSendEditorId] = useState<string | null>(null);
+  const [sendEditorDraft, setSendEditorDraft] = useState<SendDraft>(EMPTY_SEND_DRAFT);
+  const [sendEditorBusy, setSendEditorBusy] = useState(false);
+  const [sendEditorError, setSendEditorError] = useState<string | null>(null);
+  const [sendEditorNotice, setSendEditorNotice] = useState<string | null>(null);
+  const [sendOverrides, setSendOverrides] = useState<Readonly<Record<string, AccountSendConfig | null>>>({});
+  const [identityOverrides, setIdentityOverrides] = useState<Readonly<Record<string, IdentitySnapshot>>>({});
+
+  // 初始化状态（重新打开向导入口 + 未配置提示联动）。
+  const [initState, setInitState] = useState<InitState | null>(null);
+  const [initLoading, setInitLoading] = useState(false);
+
+  // 旧 profile：v1→v1.1 迁移后的只读快照，可导出 JSON。
+  const [legacyProfile, setLegacyProfile] = useState<UserProfile | null>(null);
+  const [legacyError, setLegacyError] = useState<string | null>(null);
 
   const [presetId, setPresetId] = useState<string>("deepseek");
   const [llmLabel, setLlmLabel] = useState("DeepSeek");
@@ -238,6 +642,66 @@ export function SettingsPage({
     setTimezone(profile.timezone);
   }, [profile]);
 
+  const loadInitState = (signal?: AbortSignal): void => {
+    if (mode !== "live") return;
+    setInitLoading(true);
+    void api.onboarding
+      .get(signal === undefined ? {} : { signal })
+      .then((state) => setInitState(state))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setInitState(null);
+      })
+      .finally(() => setInitLoading(false));
+  };
+
+  // 初始化状态与旧 profile 都是「服务端才知道」的事实：只在真实连接下取，
+  // 演示/离线时静默降级为空，不阻塞设置页的其它功能。
+  useEffect(() => {
+    if (mode !== "live") {
+      setInitState(null);
+      setLegacyProfile(null);
+      setLegacyError(null);
+      return;
+    }
+    const controller = new AbortController();
+    loadInitState(controller.signal);
+    void api.profile
+      .get()
+      .then((serverProfile) => {
+        if (controller.signal.aborted) return;
+        setLegacyProfile(serverProfile);
+        setLegacyError(null);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setLegacyProfile(null);
+        setLegacyError(describeFailure(error));
+      });
+    const onChanged = (): void => loadInitState();
+    window.addEventListener(ONBOARDING_CHANGED_EVENT, onChanged);
+    // 向导保存档案后旧 profile 卡也要立刻更新（本页是 keep-alive 面板，不会自动重挂载）。
+    const onDataChanged = (event: Event): void => {
+      const scope = (event as CustomEvent<DataChangedScope>).detail;
+      if (scope?.profile !== true) return;
+      void api.profile
+        .get()
+        .then((next) => {
+          if (!controller.signal.aborted) setLegacyProfile(next);
+        })
+        .catch(() => {
+          // 保持旧值，等下一次事件或重新挂载。
+        });
+    };
+    window.addEventListener(DATA_CHANGED_EVENT, onDataChanged);
+    return () => {
+      controller.abort();
+      window.removeEventListener(ONBOARDING_CHANGED_EVENT, onChanged);
+      window.removeEventListener(DATA_CHANGED_EVENT, onDataChanged);
+    };
+    // mode 决定是否拉取；loadInitState 只读 api，不依赖渲染态。
+  }, [mode]);
+
   const timezones = TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES];
 
   const addAlias = (): void => {
@@ -254,6 +718,119 @@ export function SettingsPage({
     setEmailDraft("");
   };
 
+  /** 创建账号前的 Autodiscover 探测：只填非密文字段，失败不阻塞，允许手填。 */
+  const runDiscover = (): void => {
+    const email = accountEmail.trim();
+    if (!email.includes("@")) {
+      setAccountError("先填邮箱地址，再跑自动发现");
+      return;
+    }
+    setAccountError(null);
+    setDiscoverNote(null);
+    setDiscovering(true);
+    void api.accounts
+      .discover({
+        email,
+        providerHint: provider,
+        ...(secret === "" ? {} : { secret }),
+      })
+      .then((result) => {
+        setDiscoverNote(result.detail === "" ? "自动发现完成" : result.detail);
+        if (result.provider !== null) {
+          setProvider(result.provider);
+          setPort(DEFAULT_PORT[result.provider]);
+        }
+        const discoveredHost = result.config["host"];
+        if (discoveredHost !== undefined) setHost(discoveredHost);
+        const discoveredPort = result.config["port"];
+        if (discoveredPort !== undefined) setPort(discoveredPort);
+        const discoveredUrl = result.config["ewsUrl"];
+        if (discoveredUrl !== undefined) {
+          setSendDraft((previous) => ({ ...previous, ewsUrl: discoveredUrl }));
+        }
+        if (result.send !== null) {
+          setSendDraft((previous) => ({
+            ...previous,
+            ewsUrl: result.send?.ewsUrl ?? previous.ewsUrl,
+            smtpHost: result.send?.smtpHost ?? previous.smtpHost,
+            smtpPort:
+              result.send?.smtpPort === null || result.send?.smtpPort === undefined
+                ? previous.smtpPort
+                : String(result.send.smtpPort),
+            smtpSecure: result.send?.smtpSecure ?? previous.smtpSecure,
+            smtpUser: result.send?.smtpUser ?? previous.smtpUser,
+            authMode: result.send?.authMode ?? previous.authMode,
+          }));
+        }
+      })
+      .catch((error: unknown) => {
+        // 探测失败是常态（内网封锁 / 无 DNS），只提示可手填，不阻塞创建。
+        setDiscoverNote(null);
+        setAccountError(`自动发现失败（可手填）：${describeFailure(error)}`);
+      })
+      .finally(() => setDiscovering(false));
+  };
+
+  const openSendEditor = (account: AccountView): void => {
+    if (sendEditorId === account.id) {
+      setSendEditorId(null);
+      return;
+    }
+    setSendEditorDraft(sendDraftFrom(account, sendOverrides[account.id], identityOverrides[account.id]));
+    setSendEditorId(account.id);
+    setSendEditorError(null);
+    setSendEditorNotice(null);
+  };
+
+  const saveSendEditor = (account: AccountView): void => {
+    const built = buildSendInput(account.provider, sendEditorDraft);
+    if (built.error !== null) {
+      setSendEditorError(built.error);
+      return;
+    }
+    setSendEditorError(null);
+    setSendEditorNotice(null);
+    setSendEditorBusy(true);
+    // 身份字段总是随 PATCH 提交：空串显式写 null（清空语义），非空写文本。
+    void api.accounts
+      .update(account.id, { send: withClearableIdentity(built.send, sendEditorDraft) })
+      .then((updated) => {
+        setSendOverrides((previous) => ({ ...previous, [account.id]: updated.send ?? null }));
+        setIdentityOverrides((previous) => ({
+          ...previous,
+          [account.id]: {
+            signature: updated.signature ?? null,
+            displayName: updated.displayName ?? null,
+          },
+        }));
+        notifyDataChanged({ accounts: true });
+        setSendEditorNotice("发信与身份设置已保存");
+        // 密码一提交就清空本地草稿，DOM 里不再留任何明文。
+        setSendEditorDraft((previous) => ({ ...previous, smtpPassword: "" }));
+      })
+      .catch((error: unknown) => setSendEditorError(describeFailure(error)))
+      .finally(() => setSendEditorBusy(false));
+  };
+
+  const exportProfileJson = (): void => {
+    const payload = legacyProfile;
+    if (payload === null) return;
+    const text = JSON.stringify(payload, null, 2);
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "mailcollect-profile.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const reopenWizard = (): void => {
+    requestShellRoute("onboarding");
+  };
+
   const submitProfile = (): void => {
     if (displayName.trim() === "") return;
     setProfileBusy(true);
@@ -262,7 +839,11 @@ export function SettingsPage({
       aliases: [...aliases],
       emails: [...profileEmails],
       timezone,
-    }).finally(() => setProfileBusy(false));
+    })
+      .then((ok) => {
+        if (ok) notifyDataChanged({ profile: true });
+      })
+      .finally(() => setProfileBusy(false));
   };
 
   const submitAccount = (): void => {
@@ -274,6 +855,17 @@ export function SettingsPage({
       setAccountError("Graph 账号需要 clientId（在你自己的 Azure 应用注册里获取）");
       return;
     }
+    if (provider === "ews" && sendDraft.ewsUrl.trim() === "") {
+      setAccountError(
+        "本地 Exchange 账号需要 EWS URL：先跑自动发现，或手填 https://<主机>/EWS/Exchange.asmx（https 走隐式 TLS 443）",
+      );
+      return;
+    }
+    const built = buildSendInput(provider, sendDraft);
+    if (built.error !== null) {
+      setAccountError(built.error);
+      return;
+    }
     setAccountError(null);
     setAccountBusy(true);
     void onAddAccount({
@@ -282,12 +874,14 @@ export function SettingsPage({
       email: accountEmail.trim(),
       config: buildAccountConfig(provider, host, port, user, accountEmail, clientId, tenant),
       secret: provider === "graph" ? "" : secret,
+      ...(built.send === undefined ? {} : { send: built.send }),
     })
       .then((result) => {
         if (!result.ok) {
           setAccountError(result.message ?? "保存账号失败");
           return;
         }
+        notifyDataChanged({ accounts: true });
         setAccountLabel("");
         setAccountEmail("");
         setHost("");
@@ -296,6 +890,8 @@ export function SettingsPage({
         setSecret("");
         setClientId("");
         setTenant("");
+        setSendDraft(EMPTY_SEND_DRAFT);
+        setDiscoverNote(null);
         setShowAddAccount(false);
       })
       .finally(() => setAccountBusy(false));
@@ -313,7 +909,9 @@ export function SettingsPage({
   const removeAccount = (account: AccountView): void => {
     const confirmed = window.confirm(`移除账号「${account.label}」？已同步的邮件会保留。`);
     if (!confirmed) return;
-    void onRemoveAccount(account.id);
+    void onRemoveAccount(account.id).then((ok) => {
+      if (ok) notifyDataChanged({ accounts: true });
+    });
   };
 
   const applyPreset = (preset: LlmPreset): void => {
@@ -343,7 +941,9 @@ export function SettingsPage({
       isDefault: llmConfigs.length === 0,
     })
       .then((ok) => {
-        if (ok) setApiKey("");
+        if (!ok) return;
+        notifyDataChanged({ llm: true });
+        setApiKey("");
       })
       .finally(() => setLlmBusy(false));
   };
@@ -381,8 +981,84 @@ export function SettingsPage({
       ? "本机 localStorage"
       : "开发默认 dev-local-token";
 
+  const missingLabels: string[] = [];
+  if (profile === null) missingLabels.push("用户档案");
+  if (accounts.length === 0) missingLabels.push("邮箱账号");
+  if (llmConfigs.length === 0) missingLabels.push("LLM 供应商");
+
+  const initChipClass =
+    initState === null
+      ? "chip--muted"
+      : initState.completed
+        ? "chip--success"
+        : initState.skipped
+          ? "chip--warning"
+          : "chip--accent";
+  const initLabel = initLoading
+    ? "读取中…"
+    : initState === null
+      ? "状态未知"
+      : initState.completed
+        ? "已完成"
+        : initState.skipped
+          ? "已跳过"
+          : "未完成";
+
   return (
     <div className="settings">
+      {/* 初始化与引导：重开向导的唯一入口 + 未配置提示联动（C3）。 */}
+      <GlassCard>
+        <div className="card-head">
+          <div className="card-head-icon is-iris">
+            <Icon name="spark" size={17} />
+          </div>
+          <div className="card-head-text">
+            <h2 className="card-title">初始化与引导</h2>
+            <p className="card-sub">
+              三步向导可随时重开：用户档案 · 邮箱账号 · LLM 供应商。向导只写「完成/跳过」标记，
+              不清空任何已有数据，也不提供重置入口。
+            </p>
+          </div>
+          <div className="section-spacer" style={{ flex: 1 }} />
+          <span className={clsx("chip", initChipClass)}>{initLabel}</span>
+        </div>
+
+        <div className="connection-list">
+          <div className="connection-row">
+            <span className="connection-key">用户档案</span>
+            <span className={clsx("chip", profile === null ? "chip--warning" : "chip--success")}>
+              {profile === null ? "未配置" : "已配置"}
+            </span>
+          </div>
+          <div className="connection-row">
+            <span className="connection-key">邮箱账号</span>
+            <span className={clsx("chip", accounts.length === 0 ? "chip--warning" : "chip--success")}>
+              {accounts.length === 0 ? "未配置" : `${accounts.length} 个`}
+            </span>
+          </div>
+          <div className="connection-row">
+            <span className="connection-key">LLM 供应商</span>
+            <span className={clsx("chip", llmConfigs.length === 0 ? "chip--warning" : "chip--success")}>
+              {llmConfigs.length === 0 ? "未配置" : `${llmConfigs.length} 个`}
+            </span>
+          </div>
+        </div>
+
+        <div className="settings-note">
+          {missingLabels.length === 0
+            ? "三项都已配置：收件、规则分类与待办抽取可以工作。"
+            : `还缺：${missingLabels.join("、")}。可以重开向导补齐，也可以留在本页手动填写——两者写的是同一份配置。`}
+        </div>
+
+        <div className="form-actions">
+          <button type="button" className="btn btn--primary" onClick={reopenWizard}>
+            <Icon name="spark" size={14} />
+            重新打开初始化向导
+          </button>
+          <span className="field-hint">「跳过」之后不再自动全屏，只保留这里的入口与侧栏未配置提示。</span>
+        </div>
+      </GlassCard>
+
       <div className="settings-grid">
         <GlassCard>
           <div className="card-head">
@@ -598,6 +1274,78 @@ export function SettingsPage({
               : "服务端除 /api/health 外都需要 Bearer 令牌；断网时已同步的数据仍可浏览。"}
           </div>
         </GlassCard>
+
+        <GlassCard>
+          <div className="card-head">
+            <div className="card-head-icon">
+              <Icon name="user" size={17} />
+            </div>
+            <div className="card-head-text">
+              <h2 className="card-title">旧 profile（只读）</h2>
+              <p className="card-sub">
+                v1 → v1.1 迁移会把旧档案原样保留；这里只读展示服务端当前记录，可导出为 JSON。
+              </p>
+            </div>
+            <div className="section-spacer" style={{ flex: 1 }} />
+            <button
+              type="button"
+              className="btn btn--sm"
+              disabled={legacyProfile === null}
+              onClick={exportProfileJson}
+            >
+              <Icon name="paperclip" size={13} />
+              导出 JSON
+            </button>
+          </div>
+
+          {mode !== "live" ? (
+            <div className="settings-note">演示/离线状态读不到服务端档案；连上服务端后这里显示只读快照。</div>
+          ) : legacyError !== null ? (
+            <div className="test-result is-error">
+              <Icon name="alert" size={13} />
+              读取档案失败：{legacyError}
+            </div>
+          ) : legacyProfile === null ? (
+            <div className="settings-note">服务端还没有档案：向导第①步保存后会出现在这里。</div>
+          ) : (
+            <>
+              <div className="connection-list">
+                <div className="connection-row">
+                  <span className="connection-key">显示名</span>
+                  <span className="code">{legacyProfile.displayName}</span>
+                </div>
+                <div className="connection-row">
+                  <span className="connection-key">时区</span>
+                  <span className="code">{legacyProfile.timezone}</span>
+                </div>
+                <div className="connection-row">
+                  <span className="connection-key">姓名别名</span>
+                  <span className="code">
+                    {legacyProfile.aliases.length === 0 ? "—" : legacyProfile.aliases.join(" / ")}
+                  </span>
+                </div>
+                <div className="connection-row">
+                  <span className="connection-key">邮箱</span>
+                  <span className="code">
+                    {legacyProfile.emails.length === 0 ? "—" : legacyProfile.emails.join(" / ")}
+                  </span>
+                </div>
+              </div>
+              <details style={{ marginTop: 12 }}>
+                <summary className="field-hint" style={{ cursor: "pointer" }}>
+                  查看 JSON 原文
+                </summary>
+                <pre className="code" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                  {JSON.stringify(legacyProfile, null, 2)}
+                </pre>
+              </details>
+              <div className="settings-note">
+                这份快照只有档案字段（显示名 / 别名 / 邮箱 / 时区），不含任何凭据；导出文件名为
+                mailcollect-profile.json。
+              </div>
+            </>
+          )}
+        </GlassCard>
       </div>
 
       <GlassCard>
@@ -632,11 +1380,13 @@ export function SettingsPage({
                     setProvider(next);
                     setPort(DEFAULT_PORT[next]);
                     setAccountError(null);
+                    setDiscoverNote(null);
                   }}
                 >
                   <option value="imap">IMAP</option>
                   <option value="pop3">POP3（只读拉取）</option>
                   <option value="graph">Microsoft Graph</option>
+                  <option value="ews">本地 Exchange（EWS）</option>
                 </select>
               </div>
 
@@ -710,7 +1460,7 @@ export function SettingsPage({
                 </>
               ) : null}
 
-              {provider === "graph" ? null : (
+              {provider === "graph" || provider === "ews" ? null : (
                 <>
                   <div className="form-row">
                     <label className="field-label" htmlFor="account-host">
@@ -768,6 +1518,13 @@ export function SettingsPage({
                   <span className="field-hint">凭据由服务端 AES-256-GCM 加密落盘，接口只返回 hasSecret。</span>
                 </div>
               )}
+
+              <SendDraftForm
+                draft={sendDraft}
+                provider={provider}
+                idPrefix="account"
+                onChange={setSendDraft}
+              />
             </div>
 
             {accountError === null ? null : (
@@ -777,15 +1534,34 @@ export function SettingsPage({
               </div>
             )}
 
+            {discoverNote === null ? null : (
+              <div className="test-result is-ok">
+                <Icon name="check" size={14} />
+                {discoverNote}
+              </div>
+            )}
+
             <div className="form-actions">
               <button type="button" className="btn btn--primary btn--sm" disabled={accountBusy} onClick={submitAccount}>
                 <Icon name="plus" size={13} />
                 {accountBusy ? "保存中…" : "保存账号"}
               </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                title="按邮箱域名跑 Autodiscover，识别 Exchange / Office 365；失败可手填"
+                disabled={discovering || accountEmail.trim() === ""}
+                onClick={runDiscover}
+              >
+                <Icon name="search" size={13} />
+                {discovering ? "探测中…" : "自动发现"}
+              </button>
               <span className="field-hint">
                 {provider === "graph"
                   ? "保存后在账号列表点「登录 Microsoft」完成设备码授权；cachePath 由服务端自动推导。"
-                  : "保存后可以点「验证」测试连通性，验证失败不会删除账号。"}
+                  : provider === "ews"
+                    ? "自动发现失败不影响保存：手填 EWS 端点即可；发信可以用同一个 EWS 端点。"
+                    : "自动发现只对 Exchange 域有效；IMAP/POP3 手填服务器即可。验证失败不会删除账号。"}
               </span>
             </div>
           </div>
@@ -823,14 +1599,72 @@ export function SettingsPage({
                     <div className="account-meta">
                       {account.email} · 上次同步 {account.lastSyncAt === null ? "从未" : formatDateTime(account.lastSyncAt)}
                     </div>
+                    <div className="account-meta">
+                      {sendSummary(account, sendOverrides[account.id], identityOverrides[account.id])}
+                    </div>
                     {result === undefined ? null : (
                       <div className={clsx("test-result", result.ok ? "is-ok" : "is-error")}>
                         <Icon name={result.ok ? "check" : "alert"} size={13} />
                         {result.detail}
                       </div>
                     )}
+                    {sendEditorId === account.id ? (
+                      <div className="alias-editor" style={{ marginTop: 10 }}>
+                        <div className="form-grid">
+                          <SendDraftForm
+                            draft={sendEditorDraft}
+                            provider={account.provider}
+                            idPrefix={`send-${account.id}`}
+                            onChange={setSendEditorDraft}
+                          />
+                        </div>
+                        {sendEditorError === null ? null : (
+                          <div className="test-result is-error">
+                            <Icon name="alert" size={13} />
+                            {sendEditorError}
+                          </div>
+                        )}
+                        {sendEditorNotice === null ? null : (
+                          <div className="test-result is-ok">
+                            <Icon name="check" size={13} />
+                            {sendEditorNotice}
+                          </div>
+                        )}
+                        <div className="form-actions">
+                          <button
+                            type="button"
+                            className="btn btn--primary btn--sm"
+                            disabled={sendEditorBusy}
+                            onClick={() => saveSendEditor(account)}
+                          >
+                            <Icon name="check" size={13} />
+                            {sendEditorBusy ? "保存中…" : "保存发信设置"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--sm btn--quiet"
+                            onClick={() => setSendEditorId(null)}
+                          >
+                            收起
+                          </button>
+                          <span className="field-hint">
+                            只 PATCH 这些字段；密码留空 = 保持原密文不变，填了才轮换；
+                            签名 / 显示名清空保存 = 写回 null。
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="account-actions">
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      title="签名 / 显示名 / SMTP / EWS 设置"
+                      onClick={() => openSendEditor(account)}
+                    >
+                      <Icon name="settings" size={13} />
+                      签名 / 发信
+                    </button>
                     {account.provider === "graph" ? (
                       <button
                         type="button"
@@ -899,11 +1733,27 @@ export function SettingsPage({
                 </div>
                 <div className="account-actions">
                   {config.isDefault ? null : (
-                    <button type="button" className="btn btn--sm" onClick={() => void onSetDefaultLlm(config.id)}>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => {
+                        void onSetDefaultLlm(config.id).then((ok) => {
+                          if (ok) notifyDataChanged({ llm: true });
+                        });
+                      }}
+                    >
                       设为默认
                     </button>
                   )}
-                  <button type="button" className="btn btn--sm btn--danger" onClick={() => void onRemoveLlm(config.id)}>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--danger"
+                    onClick={() => {
+                      void onRemoveLlm(config.id).then((ok) => {
+                        if (ok) notifyDataChanged({ llm: true });
+                      });
+                    }}
+                  >
                     <Icon name="trash" size={13} />
                     删除
                   </button>

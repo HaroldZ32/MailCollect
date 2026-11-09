@@ -173,11 +173,14 @@ export interface GanttChartProps {
 export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
   const [hostElement, setHostElement] = useState<HTMLDivElement | null>(null);
   const [level, setLevel] = useState(INITIAL_LEVEL);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const initializedRef = useRef(false);
   const levelRef = useRef(INITIAL_LEVEL);
   const onTimeChangeRef = useRef(onTaskTimeChange);
   const todayLineRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const timed = useMemo(() => {
     const entries: TimedTask[] = [];
@@ -199,27 +202,35 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
   }, [timed]);
 
   const syncData = useCallback(() => {
-    const entries = timedRef.current;
-    timedIndex.clear();
-    for (const entry of entries) timedIndex.set(entry.task.id, entry);
+    if (!initializedRef.current) return;
+    try {
+      const entries = timedRef.current;
+      timedIndex.clear();
+      for (const entry of entries) timedIndex.set(entry.task.id, entry);
 
-    const rows: GanttTask[] = entries.map((entry) => ({
-      id: entry.task.id,
-      text: entry.task.title,
-      start_date: entry.start,
-      end_date: entry.end,
-      progress: 0,
-      parent: 0,
-    }));
+      const rows: GanttTask[] = entries.map((entry) => ({
+        id: entry.task.id,
+        text: entry.task.title,
+        start_date: entry.start,
+        end_date: entry.end,
+        progress: 0,
+        parent: 0,
+      }));
 
-    const scroll = gantt.getScrollState();
-    gantt.clearAll();
-    gantt.parse({ data: rows, links: buildLinks(entries) });
-    gantt.setSizes();
-    gantt.scrollTo(scroll.x, scroll.y);
+      const scroll = gantt.getScrollState();
+      gantt.clearAll();
+      gantt.parse({ data: rows, links: buildLinks(entries) });
+      gantt.setSizes();
+      gantt.scrollTo(scroll.x, scroll.y);
+    } catch (error) {
+      // 抛错不能从 effect / 事件回调里逃逸：否则 React 会卸载整棵根树（白屏）。
+      console.error("[MailCollect] 时间线数据渲染失败", error);
+      setInitError("时间线渲染失败，请点「重试」重新加载图表。");
+    }
   }, []);
 
   const updateTodayLine = useCallback(() => {
+    if (!initializedRef.current) return;
     const canvas = hostElement;
     const line = todayLineRef.current;
     if (canvas === null || line === null) return;
@@ -276,67 +287,130 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
     }
   }, [hostElement]);
 
+  /**
+   * 统一的 rAF 调度：卸载/销毁后不再有排队回调去摸 gantt 实例，
+   * 也避免每帧叠加多个 requestAnimationFrame。
+   */
+  const scheduleTodayLine = useCallback(() => {
+    if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      updateTodayLine();
+    });
+  }, [updateTodayLine]);
+
   useEffect(() => {
     if (hostElement === null) return;
 
-    configureGantt();
-    gantt.init(hostElement);
-    gantt.ext.zoom.init({ levels: buildZoomLevels(), activeLevelIndex: levelRef.current });
-    gantt.ext.zoom.setLevel(levelRef.current);
-    gantt.attachEvent("onTaskDblClick", () => false);
-    const scrollHandler = gantt.attachEvent("onGanttScroll", () => updateTodayLine());
+    let dblClickHandler: string | null = null;
+    let dragHandler: string | null = null;
+    let scrollHandler: string | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
-    const dragHandler = gantt.attachEvent("onAfterTaskDrag", (id) => {
-      const entry = timedIndex.get(String(id));
-      if (entry === undefined) return;
-      const moved = gantt.getTask(id);
-      const start = moved.start_date;
-      const end = moved.end_date;
-      if (start === undefined || end === undefined) return;
+    try {
+      configureGantt();
+      gantt.init(hostElement);
+      gantt.ext.zoom.init({ levels: buildZoomLevels(), activeLevelIndex: levelRef.current });
+      gantt.ext.zoom.setLevel(levelRef.current);
+      dblClickHandler = gantt.attachEvent("onTaskDblClick", () => false);
+      scrollHandler = gantt.attachEvent("onGanttScroll", () => scheduleTodayLine());
 
-      const roundedStart = roundToQuarter(start);
-      const roundedEnd = roundToQuarter(end);
-      const safeEnd =
-        roundedEnd.getTime() <= roundedStart.getTime()
-          ? new Date(roundedStart.getTime() + 60 * 60 * 1000)
-          : roundedEnd;
-      const patch: UpdateTaskInput = entry.dueOnly
-        ? { dueAt: safeEnd.toISOString(), windowStart: null, windowEnd: null }
-        : { windowStart: roundedStart.toISOString(), windowEnd: safeEnd.toISOString(), dueAt: null };
+      dragHandler = gantt.attachEvent("onAfterTaskDrag", (id) => {
+        const entry = timedIndex.get(String(id));
+        if (entry === undefined) return;
+        const moved = gantt.getTask(id);
+        const start = moved.start_date;
+        const end = moved.end_date;
+        if (start === undefined || end === undefined) return;
 
-      void Promise.resolve(onTimeChangeRef.current(entry.task.id, patch)).then(
-        (ok) => {
-          if (!ok) syncData();
-        },
-        () => syncData(),
-      );
-    });
+        const roundedStart = roundToQuarter(start);
+        const roundedEnd = roundToQuarter(end);
+        const safeEnd =
+          roundedEnd.getTime() <= roundedStart.getTime()
+            ? new Date(roundedStart.getTime() + 60 * 60 * 1000)
+            : roundedEnd;
+        const patch: UpdateTaskInput = entry.dueOnly
+          ? { dueAt: safeEnd.toISOString(), windowStart: null, windowEnd: null }
+          : { windowStart: roundedStart.toISOString(), windowEnd: safeEnd.toISOString(), dueAt: null };
 
-    initializedRef.current = true;
-    syncData();
-    gantt.showDate(new Date());
-    window.requestAnimationFrame(() => updateTodayLine());
+        void Promise.resolve(onTimeChangeRef.current(entry.task.id, patch)).then(
+          (ok) => {
+            if (!ok) syncData();
+          },
+          () => syncData(),
+        );
+      });
 
-    const resizeObserver = new ResizeObserver(() => {
-      gantt.setSizes();
-      updateTodayLine();
-    });
-    resizeObserver.observe(hostElement);
+      initializedRef.current = true;
+      setInitError(null);
+      syncData();
+      gantt.showDate(new Date());
+      scheduleTodayLine();
+
+      resizeObserver = new ResizeObserver((entries) => {
+        if (!initializedRef.current) return;
+        // 面板被 keep-alive 隐藏时尺寸是 0×0：此时不要 setSizes，否则会把图表宽度压成 0；
+        // 重新显示时 ResizeObserver 会带着真实尺寸再回调一次，这里负责恢复。
+        const rect = entries[0]?.contentRect;
+        const width = rect === undefined ? hostElement.clientWidth : rect.width;
+        const height = rect === undefined ? hostElement.clientHeight : rect.height;
+        if (width <= 0 || height <= 0) return;
+        try {
+          gantt.setSizes();
+        } catch (error) {
+          console.error("[MailCollect] 时间线尺寸恢复失败", error);
+        }
+        scheduleTodayLine();
+      });
+      resizeObserver.observe(hostElement);
+    } catch (error) {
+      // effect 里同步抛错会冒泡到 React 根：没有任何边界接住时整棵树被卸载（白屏）。
+      // 这里把初始化失败收敛成面板内的错误卡，绝不让异常逃逸。
+      initializedRef.current = false;
+      console.error("[MailCollect] 时间线初始化失败", error);
+      setInitError("时间线初始化失败，请点「重试」重新加载图表。");
+      try {
+        gantt.destructor();
+      } catch (destroyError) {
+        console.error("[MailCollect] 时间线销毁失败", destroyError);
+      }
+    }
 
     return () => {
       initializedRef.current = false;
-      resizeObserver.disconnect();
-      gantt.detachEvent(dragHandler);
-      gantt.detachEvent(scrollHandler);
-      gantt.destructor();
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      resizeObserver?.disconnect();
+      for (const handler of [dblClickHandler, dragHandler, scrollHandler]) {
+        if (handler === null) continue;
+        try {
+          gantt.detachEvent(handler);
+        } catch (error) {
+          console.error("[MailCollect] 时间线事件解绑失败", error);
+        }
+      }
+      timedIndex.clear();
+      try {
+        gantt.destructor();
+      } catch (error) {
+        // 卸载阶段的抛错同样会连累根节点，必须吞掉并记录。
+        console.error("[MailCollect] 时间线销毁失败", error);
+      }
     };
-  }, [hostElement, syncData, updateTodayLine]);
+  }, [hostElement, syncData, scheduleTodayLine, retryNonce]);
 
   useEffect(() => {
     if (!initializedRef.current) return;
     syncData();
-    window.requestAnimationFrame(() => updateTodayLine());
-  }, [timed, syncData, updateTodayLine]);
+    scheduleTodayLine();
+  }, [timed, syncData, scheduleTodayLine]);
+
+  const retry = (): void => {
+    setInitError(null);
+    setRetryNonce((value) => value + 1);
+  };
 
   const chartHeight = Math.min(720, Math.max(300, timed.length * ROW_HEIGHT + 72));
 
@@ -344,14 +418,24 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
     levelRef.current = next;
     setLevel(next);
     if (!initializedRef.current) return;
-    gantt.ext.zoom.setLevel(next);
-    window.requestAnimationFrame(() => updateTodayLine());
+    try {
+      gantt.ext.zoom.setLevel(next);
+    } catch (error) {
+      console.error("[MailCollect] 时间刻度切换失败", error);
+      return;
+    }
+    scheduleTodayLine();
   };
 
   const jumpToToday = (): void => {
     if (!initializedRef.current) return;
-    gantt.showDate(new Date());
-    window.requestAnimationFrame(() => updateTodayLine());
+    try {
+      gantt.showDate(new Date());
+    } catch (error) {
+      console.error("[MailCollect] 回到今天失败", error);
+      return;
+    }
+    scheduleTodayLine();
   };
 
   return (
@@ -394,7 +478,20 @@ export function GanttChart({ tasks, onTaskTimeChange }: GanttChartProps) {
         </div>
       </div>
 
-      {timed.length === 0 ? (
+      {initError !== null ? (
+        <EmptyState
+          icon="alert"
+          tone="iris"
+          title="时间线渲染失败"
+          text={initError}
+          action={
+            <button type="button" className="btn btn--primary" onClick={retry}>
+              <Icon name="refresh" size={14} />
+              重试
+            </button>
+          }
+        />
+      ) : timed.length === 0 ? (
         <EmptyState
           icon="timeline"
           title="时间线上还没有可排的待办"

@@ -2,22 +2,62 @@ import type {
   AccountView,
   ApiErrorBody,
   ApiErrorCode,
+  AccountSendInput,
+  AttachmentListResponse,
+  AttachmentMeta,
+  AutodiscoverResponse,
   BroadcastVerdict,
   BulkDecisionInput,
+  Category,
+  CategoryListResponse,
   CreateAccountInput,
+  CreateCategoryInput,
+  CreateRuleInput,
+  DiscoverAccountInput,
+  DiscoverAccountResponse,
+  Draft,
+  DraftListQuery,
+  DraftListResponse,
   EmailListQuery,
   EmailListResponse,
+  Folder,
+  FolderListQuery,
+  FolderListResponse,
   HealthResponse,
   LlmConfigInput,
   LlmConfigView,
   LlmTestInput,
   LlmTestResponse,
+  MessageDetailResponse,
+  MessageListQuery,
+  MessageListResponse,
+  MoveMessageInput,
+  OnboardingStatusResponse,
+  OutboxActionResponse,
+  OutboxItem,
+  OutboxListQuery,
+  OutboxListResponse,
   RawEmail,
+  RecomputeRequest,
+  RecomputeResponse,
+  RecomputeStatusResponse,
+  ReorderRulesInput,
+  Rule,
+  RuleListResponse,
+  SaveDraftInput,
+  SaveDraftResponse,
+  SendMessageInput,
+  SendMessageResponse,
   SyncRequest,
   SyncResponse,
   Task,
   TaskListQuery,
   TaskListResponse,
+  UpdateCategoryInput,
+  UpdateAccountInput,
+  UpdateMessageInput,
+  UpdateOnboardingInput,
+  UpdateRuleInput,
   UpdateTaskInput,
   UpsertProfileInput,
   UserProfile,
@@ -116,10 +156,19 @@ export function hasStoredToken(): boolean {
   return readStoredToken() !== null;
 }
 
-function queryString(params: Readonly<Record<string, string | number | boolean | undefined>>): string {
+type QueryValue = string | number | boolean | readonly string[] | undefined;
+
+function queryString(params: Readonly<Record<string, QueryValue>>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === "") continue;
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== "") search.append(key, item);
+      }
+      continue;
+    }
+    if (value === "") continue;
     search.set(key, String(value));
   }
   const encoded = search.toString();
@@ -146,6 +195,37 @@ interface JsonRequest {
   readonly body?: unknown;
   readonly auth?: boolean;
   readonly timeoutMs?: number;
+  /** 调用方取消：数据层在 key 变化/强制刷新时中止在途请求。 */
+  readonly signal?: AbortSignal;
+}
+
+/** v1.1 读请求可选的取消通道（写请求不暴露：写操作一旦发出不应被切面板中止）。 */
+/**
+ * UI 侧「可清除」的发信入参。服务端 `PATCH /api/accounts/:id` 的
+ * `send.signature` / `send.displayName` 接受显式 `null` 表示清除
+ * （见 apps/server/src/routes/accounts.ts 的 parseSendInput），
+ * 但 shared 的 `AccountSendInput` 目前仍是 `string`。这里只做类型跟随，
+ * 不改任何运行行为；shared 补上 `null` 后删掉本类型即可。
+ */
+export type ClearableAccountSendInput = Omit<AccountSendInput, "signature" | "displayName"> & {
+  readonly signature?: string | null;
+  readonly displayName?: string | null;
+};
+
+export type UpdateAccountPayload = Omit<UpdateAccountInput, "send"> & {
+  readonly send?: ClearableAccountSendInput;
+};
+
+export interface RequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+const ATTACHMENT_TIMEOUT_MS = 120_000;
+
+/** 把调用方 signal 与服务端超时合成为一个 signal；超时与主动取消在 catch 里分开映射。 */
+function composeSignal(caller: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return caller === undefined ? timeout : AbortSignal.any([caller, timeout]);
 }
 
 async function readErrorPayload(response: Response): Promise<ApiErrorBody | null> {
@@ -166,7 +246,7 @@ function parseContract<T>(payload: unknown): T {
   return payload as T;
 }
 
-async function requestJson<T>(path: string, init: JsonRequest = {}): Promise<T> {
+async function issueRequest(path: string, init: JsonRequest = {}): Promise<Response> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (init.body !== undefined) headers["content-type"] = "application/json";
   if (init.auth !== false) headers["authorization"] = `Bearer ${resolveToken()}`;
@@ -177,10 +257,15 @@ async function requestJson<T>(path: string, init: JsonRequest = {}): Promise<T> 
       method: init.method ?? "GET",
       headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      signal: composeSignal(init.signal, init.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
   } catch (error) {
-    if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      // 主动取消：原样上抛，由数据层忽略；只有服务端超时才算连接故障。
+      if (init.signal?.aborted === true) throw error;
+      throw new ApiError("network", "请求超时，本地服务可能没有启动", 0);
+    }
+    if (error instanceof DOMException && error.name === "TimeoutError") {
       throw new ApiError("network", "请求超时，本地服务可能没有启动", 0);
     }
     if (error instanceof TypeError) {
@@ -195,8 +280,73 @@ async function requestJson<T>(path: string, init: JsonRequest = {}): Promise<T> 
     throw new ApiError("internal", `请求失败（HTTP ${response.status}）`, response.status);
   }
 
+  return response;
+}
+
+async function requestJson<T>(path: string, init: JsonRequest = {}): Promise<T> {
+  const response = await issueRequest(path, init);
   return parseContract<T>(await response.json());
 }
+
+/**
+ * 状态型写端点：shared 未冻结单体响应信封（可能在 {ok:true} / {item} / 空体之间）。
+ * 这里只校验 HTTP 状态并容忍任意 JSON 体，避免把 UI 绑死在未固定的信封上。
+ */
+async function requestOk(path: string, init: JsonRequest = {}): Promise<void> {
+  const response = await issueRequest(path, init);
+  try {
+    await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return;
+    throw error;
+  }
+}
+
+/**
+ * 单体实体信封（accounts/categories/rules 的 create/update）：shared 未冻结响应类型。
+ * 同时接受 {account|category|rule}、{item} 与裸对象，服务端信封落地后再收紧。
+ */
+function unwrapEntity<T>(payload: unknown, key: string): T {
+  if (isRecord(payload)) {
+    const wrapped = payload[key];
+    if (wrapped !== undefined) return wrapped as T;
+    const item = payload["item"];
+    if (item !== undefined) return item as T;
+  }
+  return payload as T;
+}
+
+export interface AttachmentBlob {
+  readonly blob: Blob;
+  /** 取自 Content-Disposition；服务端未给出时回退到附件的 AttachmentMeta。 */
+  readonly filename: string | null;
+  readonly mimeType: string | null;
+}
+
+function filenameFromDisposition(value: string | null): string | null {
+  if (value === null) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (encoded !== null) {
+    const raw = encoded[1];
+    if (raw === undefined) return null;
+    try {
+      return decodeURIComponent(raw);
+    } catch (error) {
+      if (error instanceof URIError) return null;
+      throw error;
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(value);
+  if (quoted !== null) {
+    const raw = quoted[1];
+    return raw === undefined ? null : raw;
+  }
+  const bare = /filename=([^;]+)/i.exec(value);
+  if (bare === null) return null;
+  const raw = bare[1];
+  return raw === undefined ? null : raw.trim();
+}
+
 
 export interface EmailDetail {
   readonly email: RawEmail;
@@ -238,6 +388,25 @@ export const api = {
       });
       return payload.account;
     },
+    /**
+     * PATCH /api/accounts/:id —— 发信字段、身份（签名/显示名）、启用状态与密文轮换
+     * （未出现的字段保持不变）。身份字段传 `null` 表示清除。
+     */
+    update: async (accountId: string, input: UpdateAccountPayload): Promise<AccountView> => {
+      const payload = await requestJson<{ account: AccountView }>(
+        `/accounts/${encodeURIComponent(accountId)}`,
+        { method: "PATCH", body: input },
+      );
+      return unwrapEntity<AccountView>(payload, "account");
+    },
+    /** POST /api/accounts/discover —— 创建账号前的探测（向导第②步）。 */
+    discover: (input: DiscoverAccountInput): Promise<DiscoverAccountResponse> =>
+      requestJson<DiscoverAccountResponse>("/accounts/discover", { method: "POST", body: input }),
+    /** POST /api/accounts/:id/autodiscover —— 对已存在账号的重探测。 */
+    autodiscover: (accountId: string): Promise<AutodiscoverResponse> =>
+      requestJson<AutodiscoverResponse>(`/accounts/${encodeURIComponent(accountId)}/autodiscover`, {
+        method: "POST",
+      }),
     remove: async (accountId: string): Promise<void> => {
       await requestJson<{ ok: boolean }>(`/accounts/${encodeURIComponent(accountId)}`, {
         method: "DELETE",
@@ -328,6 +497,180 @@ export const api = {
   extract: {
     run: async (): Promise<void> => {
       await requestJson<{ ok: boolean }>("/extract", { method: "POST", body: {} });
+    },
+  },
+
+  /* ------------------------------- v1.1 -------------------------------- */
+
+  onboarding: {
+    get: (options: RequestOptions = {}): Promise<OnboardingStatusResponse> =>
+      requestJson<OnboardingStatusResponse>("/onboarding", { signal: options.signal }),
+    update: (input: UpdateOnboardingInput): Promise<OnboardingStatusResponse> =>
+      requestJson<OnboardingStatusResponse>("/onboarding", { method: "PUT", body: input }),
+  },
+
+  categories: {
+    list: async (options: RequestOptions = {}): Promise<readonly Category[]> => {
+      const payload = await requestJson<CategoryListResponse>("/categories", { signal: options.signal });
+      return payload.items;
+    },
+    create: async (input: CreateCategoryInput): Promise<Category> => {
+      const payload = await requestJson<{ category: Category }>("/categories", {
+        method: "POST",
+        body: input,
+      });
+      return unwrapEntity<Category>(payload, "category");
+    },
+    update: async (categoryId: string, input: UpdateCategoryInput): Promise<Category> => {
+      const payload = await requestJson<{ category: Category }>(
+        `/categories/${encodeURIComponent(categoryId)}`,
+        { method: "PATCH", body: input },
+      );
+      return unwrapEntity<Category>(payload, "category");
+    },
+    /**
+     * `confirm` 只作用于非空分类：第一次不带 confirm，服务端用 409 文案说明将连带删除的
+     * 规则/邮件数量；用户确认后再带 `?confirm=true` 真正删除。空分类不带 confirm 也直接删。
+     */
+    remove: (categoryId: string, options: { readonly confirm?: boolean } = {}): Promise<void> =>
+      requestOk(
+        `/categories/${encodeURIComponent(categoryId)}${options.confirm === true ? "?confirm=true" : ""}`,
+        { method: "DELETE" },
+      ),
+  },
+
+  rules: {
+    list: async (options: RequestOptions = {}): Promise<readonly Rule[]> => {
+      const payload = await requestJson<RuleListResponse>("/rules", { signal: options.signal });
+      return payload.items;
+    },
+    create: async (input: CreateRuleInput): Promise<Rule> => {
+      const payload = await requestJson<{ rule: Rule }>("/rules", { method: "POST", body: input });
+      return unwrapEntity<Rule>(payload, "rule");
+    },
+    update: async (ruleId: string, input: UpdateRuleInput): Promise<Rule> => {
+      const payload = await requestJson<{ rule: Rule }>(`/rules/${encodeURIComponent(ruleId)}`, {
+        method: "PATCH",
+        body: input,
+      });
+      return unwrapEntity<Rule>(payload, "rule");
+    },
+    remove: (ruleId: string): Promise<void> =>
+      requestOk(`/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" }),
+    /** 拖拽排序：`ids` 是新的展示顺序；结果以 GET /rules 为准。 */
+    reorder: (input: ReorderRulesInput): Promise<void> =>
+      requestOk("/rules/reorder", { method: "POST", body: input }),
+    recompute: (input: RecomputeRequest = {}): Promise<RecomputeResponse> =>
+      requestJson<RecomputeResponse>("/rules/recompute", { method: "POST", body: input }),
+    recomputeStatus: (jobId: string): Promise<RecomputeStatusResponse> =>
+      requestJson<RecomputeStatusResponse>(`/rules/recompute/${encodeURIComponent(jobId)}`),
+  },
+
+  folders: {
+    list: async (query: FolderListQuery, options: RequestOptions = {}): Promise<readonly Folder[]> => {
+      const payload = await requestJson<FolderListResponse>(
+        `/folders${queryString({ accountId: query.accountId })}`,
+        { signal: options.signal },
+      );
+      return payload.items;
+    },
+  },
+
+  messages: {
+    list: (query: MessageListQuery = {}, options: RequestOptions = {}): Promise<MessageListResponse> =>
+      requestJson<MessageListResponse>(
+        `/messages${queryString({
+          accountId: query.accountId,
+          folder: query.folder,
+          categoryIds: query.categoryIds,
+          search: query.search,
+          unreadOnly: query.unreadOnly,
+          limit: query.limit,
+          cursor: query.cursor,
+        })}`,
+        { signal: options.signal },
+      ),
+    get: (messageId: string, options: RequestOptions = {}): Promise<MessageDetailResponse> =>
+      requestJson<MessageDetailResponse>(`/messages/${encodeURIComponent(messageId)}`, {
+        signal: options.signal,
+      }),
+    update: (messageId: string, input: UpdateMessageInput): Promise<void> =>
+      requestOk(`/messages/${encodeURIComponent(messageId)}`, { method: "PATCH", body: input }),
+    move: (messageId: string, input: MoveMessageInput): Promise<void> =>
+      requestOk(`/messages/${encodeURIComponent(messageId)}/move`, { method: "POST", body: input }),
+  },
+
+  attachments: {
+    list: async (messageId: string, options: RequestOptions = {}): Promise<readonly AttachmentMeta[]> => {
+      const payload = await requestJson<AttachmentListResponse>(
+        `/messages/${encodeURIComponent(messageId)}/attachments`,
+        { signal: options.signal },
+      );
+      return payload.items;
+    },
+    /** GET /api/messages/:id/attachments/:attachmentId 返回原始字节，不是 JSON。 */
+    download: async (
+      messageId: string,
+      attachmentId: string,
+      options: RequestOptions = {},
+    ): Promise<AttachmentBlob> => {
+      const response = await issueRequest(
+        `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { signal: options.signal, timeoutMs: ATTACHMENT_TIMEOUT_MS },
+      );
+      return {
+        blob: await response.blob(),
+        filename: filenameFromDisposition(response.headers.get("content-disposition")),
+        mimeType: response.headers.get("content-type"),
+      };
+    },
+  },
+
+  send: {
+    submit: (input: SendMessageInput): Promise<SendMessageResponse> =>
+      requestJson<SendMessageResponse>("/send", { method: "POST", body: input }),
+  },
+
+  drafts: {
+    list: async (query: DraftListQuery = {}, options: RequestOptions = {}): Promise<readonly Draft[]> => {
+      const payload = await requestJson<DraftListResponse>(
+        `/drafts${queryString({ accountId: query.accountId })}`,
+        { signal: options.signal },
+      );
+      return payload.items;
+    },
+    save: async (input: SaveDraftInput): Promise<Draft> => {
+      const payload = await requestJson<SaveDraftResponse>("/drafts", { method: "PUT", body: input });
+      return payload.draft;
+    },
+    remove: (draftId: string): Promise<void> =>
+      requestOk(`/drafts/${encodeURIComponent(draftId)}`, { method: "DELETE" }),
+  },
+
+  outbox: {
+    list: async (
+      query: OutboxListQuery = {},
+      options: RequestOptions = {},
+    ): Promise<readonly OutboxItem[]> => {
+      const payload = await requestJson<OutboxListResponse>(
+        `/outbox${queryString({ accountId: query.accountId, status: query.status })}`,
+        { signal: options.signal },
+      );
+      return payload.items;
+    },
+    retry: async (outboxId: string): Promise<OutboxItem> => {
+      const payload = await requestJson<OutboxActionResponse>(
+        `/outbox/${encodeURIComponent(outboxId)}/retry`,
+        { method: "POST" },
+      );
+      return payload.item;
+    },
+    remove: async (outboxId: string): Promise<OutboxItem> => {
+      const payload = await requestJson<OutboxActionResponse>(
+        `/outbox/${encodeURIComponent(outboxId)}`,
+        { method: "DELETE" },
+      );
+      return payload.item;
     },
   },
 };

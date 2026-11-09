@@ -1,0 +1,304 @@
+{
+  "task": "T35 ui-mail",
+  "ranAt": "2026-11-09T05:19:18.525Z",
+  "node": "v24.21.0",
+  "platform": "linux x64",
+  "viewport": "1440x960 @2x",
+  "gateCommands": [
+    "npm run typecheck -w @mailcollect/ui",
+    "npm run build"
+  ],
+  "results": [
+    {
+      "name": "gate: npm run typecheck -w @mailcollect/ui",
+      "ok": true,
+      "detail": "exit=0"
+    },
+    {
+      "name": "gate: npm run build",
+      "ok": true,
+      "detail": "exit=0"
+    },
+    {
+      "name": "seed: scripts/seed-demo.ts",
+      "ok": true,
+      "detail": "exit=0"
+    },
+    {
+      "name": "seed: evidence/ui/mail/seed-extra.ts",
+      "ok": true,
+      "detail": "{\"accounts\":2,\"folders\":4,\"categories\":[\"点名给我\",\"群发/通知\",\"项目跟进\"],\"tagged\":8}"
+    },
+    {
+      "name": "seed: 标记初始化已跳过",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "seed: 账号 公司邮箱 指向本机不可达端口",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "seed: 账号 Outlook 个人号 指向本机不可达端口",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "boot: 生产构建静态服务（同源 /api 反向代理）",
+      "ok": true,
+      "detail": "http://127.0.0.1:8099"
+    },
+    {
+      "name": "boot: 找到 Chromium 二进制",
+      "ok": true,
+      "detail": "/home/haroldzhao/MyProj/DshProj/MailCollect/node_modules/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell"
+    },
+    {
+      "name": "inbox: 列表渲染",
+      "ok": true,
+      "detail": "items=8"
+    },
+    {
+      "name": "inbox: 邮件显示全部标签",
+      "ok": true,
+      "detail": "Q4 预算表标签数=1"
+    },
+    {
+      "name": "inbox: 多标签邮件（2 个分类）",
+      "ok": true,
+      "detail": "苏州邮件标签数=2"
+    },
+    {
+      "name": "sidebar: 文件夹条目",
+      "ok": true,
+      "detail": "folders=4"
+    },
+    {
+      "name": "sidebar: 文件夹未读数",
+      "ok": true,
+      "detail": "未读=4"
+    },
+    {
+      "name": "shot: 01-inbox-list.png",
+      "ok": true,
+      "detail": "bodyTextChars=1109"
+    },
+    {
+      "name": "inbox: 分类筛选（项目跟进）",
+      "ok": true,
+      "detail": "items=2（期望 2：苏州 + 评审会）"
+    },
+    {
+      "name": "shot: 02-inbox-filter-category.png",
+      "ok": true,
+      "detail": "bodyTextChars=512"
+    },
+    {
+      "name": "inbox: 多选分类按 ANY 取并集",
+      "ok": true,
+      "detail": "items=6（并集 > 单分类 2）"
+    },
+    {
+      "name": "detail: 正文渲染",
+      "ok": true,
+      "detail": "subject=Q4 预算表初稿：本周五 18:00 前发我"
+    },
+    {
+      "name": "detail: 纯文本正文可见",
+      "ok": true,
+      "detail": "bodyChars=69"
+    },
+    {
+      "name": "shot: 03-inbox-detail.png",
+      "ok": true,
+      "detail": "bodyTextChars=1366"
+    },
+    {
+      "name": "sanitize: 脚本未执行",
+      "ok": true,
+      "detail": "window.__xss=null"
+    },
+    {
+      "name": "sanitize: script/iframe/on*/javascript: 全部移除",
+      "ok": true,
+      "detail": "{\"xss\":null,\"scripts\":0,\"iframes\":0,\"onclick\":0,\"jsLinks\":0,\"text\":\"富文本安全渲染证据点我点击文本\",\"attachments\":1}"
+    },
+    {
+      "name": "sanitize: 正文仍可读",
+      "ok": true,
+      "detail": "富文本安全渲染证据点我点击文本"
+    },
+    {
+      "name": "sanitize: 附件条目可见",
+      "ok": true,
+      "detail": "matches=1"
+    },
+    {
+      "name": "sanitize: 无 pageerror",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "shot: 05-composer.png",
+      "ok": true,
+      "detail": "bodyTextChars=1740"
+    },
+    {
+      "name": "shot: 05b-composer-attachments.png",
+      "ok": true,
+      "detail": "bodyTextChars=1740"
+    },
+    {
+      "name": "draft: 停输 3 秒自动保存",
+      "ok": true,
+      "detail": "drafts=1"
+    },
+    {
+      "name": "draft: 第二次保存是覆盖（同 draftId，不新增行）",
+      "ok": true,
+      "detail": "first=7ba51173-1662-4082-9693-0f284caa68aa second=7ba51173-1662-4082-9693-0f284caa68aa count=1"
+    },
+    {
+      "name": "draft: 附件/密送随草稿持久化",
+      "ok": true,
+      "detail": "attachments=1 bcc=1"
+    },
+    {
+      "name": "draft: UI 显示已保存",
+      "ok": true,
+      "detail": "matches=1"
+    },
+    {
+      "name": "shot: 06-composer-autosaved.png",
+      "ok": true,
+      "detail": "bodyTextChars=1754"
+    },
+    {
+      "name": "drafts: 草稿可从列表恢复",
+      "ok": true,
+      "detail": "rows=1"
+    },
+    {
+      "name": "shot: 07-drafts.png",
+      "ok": true,
+      "detail": "bodyTextChars=630"
+    },
+    {
+      "name": "account: 创建三个证据账号",
+      "ok": true,
+      "detail": "status=201/201/201"
+    },
+    {
+      "name": "send: 认证失败给出可读错误",
+      "ok": true,
+      "detail": "发送邮件失败：SMTP 认证失败：服务器拒绝了用户名或密码（535：5.7.8 认证失败）"
+    },
+    {
+      "name": "smtp: 认证失败 sink 收到了 AUTH 但不收信",
+      "ok": true,
+      "detail": "messages=0"
+    },
+    {
+      "name": "shot: 08-send-auth-failure.png",
+      "ok": true,
+      "detail": "bodyTextChars=1560"
+    },
+    {
+      "name": "outbox: 认证失败停在发件箱（failed + lastError）",
+      "ok": true,
+      "detail": "status=failed error=SMTP 认证失败：服务器拒绝了用户名或密码（535：5.7.8 认证失败）"
+    },
+    {
+      "name": "outbox: 失败行带「重试」「删除」",
+      "ok": true,
+      "detail": "retry=1 delete=1"
+    },
+    {
+      "name": "shot: 09-outbox-failed.png",
+      "ok": true,
+      "detail": "bodyTextChars=463"
+    },
+    {
+      "name": "send: 成功投递显示「已发送」并关闭弹层",
+      "ok": true,
+      "detail": "notice=1 closed=true"
+    },
+    {
+      "name": "smtp: 本地 sink 收到 DATA 字节",
+      "ok": true,
+      "detail": "messages=1"
+    },
+    {
+      "name": "smtp: MIME 含 To/Subject/Message-ID",
+      "ok": true,
+      "detail": "bytes=421"
+    },
+    {
+      "name": "send: 发件箱出现 sent 记录",
+      "ok": true,
+      "detail": "[[\"failed\",\"证据：SMTP 认证失败\"],[\"sent\",\"证据：真实 SMTP 投递\"]]"
+    },
+    {
+      "name": "shot: 10-send-sent.png",
+      "ok": true,
+      "detail": "bodyTextChars=535"
+    },
+    {
+      "name": "send: 不可达 SMTP → 入队并安排自动重试（failed + 近期 nextAttemptAt）",
+      "ok": true,
+      "detail": "status=failed attempts=1 retryDueSec=27 lastError=【SMTP 发信】连接邮件服务器失败（127.0.0.1）：connect ECONNREFUSED 127.0.0.1"
+    },
+    {
+      "name": "send: 入队后给出「已加入发件箱」提示",
+      "ok": true,
+      "detail": "notice=1"
+    },
+    {
+      "name": "outbox: 自动重试行可见（与需手动重试区分）",
+      "ok": true,
+      "detail": "matches=1"
+    },
+    {
+      "name": "shot: 11-outbox-auto-retry.png",
+      "ok": true,
+      "detail": "bodyTextChars=717"
+    },
+    {
+      "name": "folder: 侧栏切换文件夹联动列表",
+      "ok": true,
+      "detail": "tab=邮件 · 归档"
+    },
+    {
+      "name": "shot: 12-folder-archive.png",
+      "ok": true,
+      "detail": "bodyTextChars=413"
+    },
+    {
+      "name": "runtime: 无 pageerror",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "runtime: 无未预期的 console error",
+      "ok": true,
+      "detail": "allowed=2 unexpected=0 "
+    },
+    {
+      "name": "empty: 收件箱显示「还没有邮箱账号」",
+      "ok": true,
+      "detail": "MailCollect\n邮件待办助手\n收件箱\n待办\n时间线\n规则\n初始化\n设置\n未配置：档案 / 邮箱账号去配置\n未\n未设置档案\n去设置页填写档案\nINBOX\n"
+    },
+    {
+      "name": "empty: 侧栏显示未配置提示",
+      "ok": true,
+      "detail": "有"
+    },
+    {
+      "name": "empty: 无 pageerror",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "failed": 0
+}

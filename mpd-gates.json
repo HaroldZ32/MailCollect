@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "gates": {
+    "typecheck": { "argv": ["npm", "run", "typecheck"] },
+    "tests": { "argv": ["npm", "test"] },
+    "build": { "argv": ["npm", "run", "build"] },
+    "smoke": { "argv": ["npm", "run", "smoke"] }
+  }
+}

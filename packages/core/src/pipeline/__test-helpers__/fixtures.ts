@@ -1,6 +1,7 @@
 import type { LlmConfig, RawEmail, UserProfile } from "@mailcollect/shared";
 import type { ZodType } from "zod";
 import type { LlmPort, LlmResult, StructuredRequest } from "../../llm/port.js";
+import type { ClassificationGate, ClassifyPort } from "../types.js";
 
 /** 统一的测试用户：两个邮箱、两个姓名变体、上海时区。 */
 export const TEST_PROFILE: UserProfile = {
@@ -108,4 +109,29 @@ export class ScriptedLlm implements LlmPort {
   async ping(): Promise<{ ok: boolean; latencyMs: number; detail: string }> {
     return { ok: true, latencyMs: 1, detail: "scripted" };
   }
+}
+
+/** 一条分类闸门结论（默认「三无」；测试只覆盖它关心的字段）。 */
+export function classification(
+  emailId: string,
+  overrides: Partial<ClassificationGate> = {},
+): ClassificationGate {
+  return {
+    emailId,
+    enterTodo: false,
+    broadcast: false,
+    uncategorized: false,
+    categoryIds: [],
+    ...overrides,
+  };
+}
+
+/**
+ * 按 email id 返回固定闸门结论的假分类端口。
+ * 表里没有的邮件视为「未分类」（C7：无命中不抽取）。
+ */
+export function classifyWith(
+  table: Record<string, Partial<ClassificationGate>>,
+): ClassifyPort {
+  return (email) => classification(email.id, table[email.id] ?? { uncategorized: true });
 }

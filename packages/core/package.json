@@ -7,10 +7,12 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./mail/send": "./src/mail/send/index.ts",
     "./mail": "./src/mail/index.ts",
     "./llm": "./src/llm/index.ts",
     "./store": "./src/store/index.ts",
-    "./pipeline": "./src/pipeline/index.ts"
+    "./pipeline": "./src/pipeline/index.ts",
+    "./rules": "./src/rules/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

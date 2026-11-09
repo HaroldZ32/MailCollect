@@ -35,18 +35,36 @@ function response(body: unknown, status = 200): GraphResponse {
   };
 }
 
+interface CapturedRequest {
+  readonly url: string;
+  readonly method: string;
+  readonly body: string | null;
+  readonly headers: Record<string, string>;
+}
+
 interface Harness {
   readonly source: GraphMailSource;
   readonly urls: string[];
   readonly headers: Array<Record<string, string>>;
+  readonly requests: CapturedRequest[];
+  /** 每次取令牌时申请的追加 scope；GET 路径是 undefined。 */
+  readonly scopeRequests: Array<readonly string[] | undefined>;
 }
 
 function buildSource(responder: (url: string) => GraphResponse, token = "test-access-token"): Harness {
   const urls: string[] = [];
   const headers: Array<Record<string, string>> = [];
+  const requests: CapturedRequest[] = [];
+  const scopeRequests: Array<readonly string[] | undefined> = [];
   const fetchStub: GraphFetch = async (input, init) => {
     urls.push(input);
     headers.push({ ...init.headers });
+    requests.push({
+      url: input,
+      method: init.method ?? "GET",
+      body: init.body ?? null,
+      headers: { ...init.headers },
+    });
     return responder(input);
   };
   const source = new GraphMailSource(
@@ -56,11 +74,17 @@ function buildSource(responder: (url: string) => GraphResponse, token = "test-ac
       "graph-shared-secret",
     ),
     {
-      auth: { getAccessToken: async () => token, login: async () => undefined },
+      auth: {
+        getAccessToken: async (extraScopes) => {
+          scopeRequests.push(extraScopes);
+          return token;
+        },
+        login: async () => undefined,
+      },
       fetch: fetchStub,
     },
   );
-  return { source, urls, headers };
+  return { source, urls, headers, requests, scopeRequests };
 }
 
 describe("GraphMailSource", () => {
@@ -330,5 +354,382 @@ describe("GraphMailSource", () => {
     expect(
       () => new GraphMailSource(makeAccount("graph", { clientId: "11111111-1111-1111-1111-111111111111" })),
     ).toThrowError(MailError);
+  });
+
+  /* -------------------------- v1.1 能力端口 -------------------------- */
+
+  it("缺 clientId 抛类型化 not_configured，不崩溃、文案不回显 secret", () => {
+    const account = makeAccount("graph", { cachePath: "/tmp/mailcollect-test-token.json" }, "graph-shared-secret");
+    let thrown: unknown = null;
+    try {
+      new GraphMailSource(account);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(MailError);
+    if (thrown instanceof MailError) {
+      expect(thrown.code).toBe("not_configured");
+      expect(thrown.message).toContain("clientId");
+      expect(thrown.message).not.toContain(account.secret);
+    }
+  });
+
+  it("clientId 只来自账号 config：环境变量不算数", () => {
+    const previous = process.env.GRAPH_CLIENT_ID;
+    process.env.GRAPH_CLIENT_ID = "env-only-client-id";
+    try {
+      expect(() => new GraphMailSource(makeAccount("graph", { cachePath: "/tmp/x.json" }))).toThrowError(MailError);
+    } finally {
+      if (previous === undefined) delete process.env.GRAPH_CLIENT_ID;
+      else process.env.GRAPH_CLIENT_ID = previous;
+    }
+  });
+
+  it("tenant 留空按 common 处理：构造不失败", async () => {
+    const source = new GraphMailSource(
+      makeAccount("graph", {
+        clientId: "11111111-1111-1111-1111-111111111111",
+        cachePath: "/tmp/mailcollect-test-token.json",
+        tenant: "   ",
+      }),
+    );
+    await expect(source.close()).resolves.toBeUndefined();
+  });
+
+  it("设备码登录失败返回 ok:false 类型化 detail（不抛、不挂起）", async () => {
+    const source = new GraphMailSource(
+      makeAccount("graph", {
+        clientId: "11111111-1111-1111-1111-111111111111",
+        cachePath: "/tmp/mailcollect-test-token.json",
+      }),
+      {
+        auth: {
+          getAccessToken: async () => "token",
+          login: async () => {
+            throw new MailError("auth", "设备码登录未完成或已超时", false);
+          },
+        },
+        fetch: async () => response({ value: [] }),
+      },
+    );
+
+    await expect(source.login()).resolves.toEqual({ ok: false, detail: "auth: 设备码登录未完成或已超时" });
+  });
+
+  it("listFolders 按 well-known 映射角色，并补齐列表里缺失的 Archive", async () => {
+    const harness = buildSource((url) => {
+      if (url.includes("/me/mailFolders?")) {
+        return response({
+          value: [
+            { id: "f-inbox", displayName: "收件箱", wellKnownName: "inbox", unreadItemCount: 3 },
+            { id: "f-sent", displayName: "已发送邮件", wellKnownName: "sentitems", unreadItemCount: 0 },
+            { id: "f-drafts", displayName: "草稿", wellKnownName: "drafts", unreadItemCount: 0 },
+            { id: "f-trash", displayName: "已删除邮件", wellKnownName: "deleteditems", unreadItemCount: 1 },
+            { id: "f-custom", displayName: "项目/2026", wellKnownName: null, unreadItemCount: 0 },
+          ],
+        });
+      }
+      if (url.includes("/me/mailFolders/archive?")) {
+        return response({ id: "f-archive", displayName: "Archive", wellKnownName: "archive", unreadItemCount: 0 });
+      }
+      return response({ error: {} }, 404);
+    });
+
+    const folders = await harness.source.listFolders();
+    const byRole = new Map(folders.map((folder) => [folder.role, folder]));
+
+    expect(byRole.get("inbox")?.id).toBe("f-inbox");
+    expect(byRole.get("inbox")?.unreadCount).toBe(3);
+    expect(byRole.get("sent")?.id).toBe("f-sent");
+    expect(byRole.get("drafts")?.id).toBe("f-drafts");
+    expect(byRole.get("trash")?.id).toBe("f-trash");
+    expect(byRole.get("archive")?.id).toBe("f-archive");
+    expect(byRole.get("other")?.name).toBe("项目/2026");
+    expect(harness.urls[0]).toContain("/me/mailFolders?$top=100");
+    expect(harness.urls[1]).toContain("/me/mailFolders/archive?");
+    expect(harness.headers[0]?.Authorization).toBe("Bearer test-access-token");
+  });
+
+  it("fetch({folderId}) 在指定文件夹内做 delta 增量", async () => {
+    const harness = buildSource(() =>
+      response({ value: [graphMessage("m10")], "@odata.deltaLink": DELTA_LINK_1 }),
+    );
+
+    const result = await harness.source.fetch({ folderId: "inbox" });
+
+    expect(harness.urls[0]).toContain("/me/mailFolders/inbox/messages/delta");
+    expect(harness.urls[0]).toContain("$top=50");
+    expect(result.emails.map((email) => email.uid)).toEqual(["m10"]);
+  });
+
+  it("getMessage 返回正文、已读标记与附件元数据（HTML 转纯文本）", async () => {
+    const harness = buildSource((url) => {
+      if (url.includes("/attachments?")) {
+        return response({
+          value: [
+            { id: "att1", name: "report.pdf", contentType: "application/pdf", size: 1234, isInline: false },
+            { id: "att2", name: "logo.png", contentType: "image/png", size: 56, isInline: true },
+          ],
+        });
+      }
+      return response(
+        graphMessage("m11", {
+          parentFolderId: "f-inbox",
+          isRead: true,
+          hasAttachments: true,
+          body: { contentType: "html", content: "<p>hello<strong>world</strong></p>" },
+        }),
+      );
+    });
+
+    const body = await harness.source.getMessage({ id: "m11" });
+
+    expect(body.id).toBe("m11");
+    expect(body.folderId).toBe("f-inbox");
+    expect(body.isRead).toBe(true);
+    expect(body.text).toContain("hello");
+    expect(body.text).not.toContain("<");
+    expect(body.html).toContain("<p>hello");
+    expect(body.attachments.map((item) => [item.id, item.filename, item.size, item.inline])).toEqual([
+      ["att1", "report.pdf", 1234, false],
+      ["att2", "logo.png", 56, true],
+    ]);
+    expect(harness.urls[0]).toContain("/me/messages/m11?$select=");
+    expect(harness.urls[1]).toContain("/me/messages/m11/attachments?$select=");
+  });
+
+  it("getMessage 在 hasAttachments=false 时不请求附件列表", async () => {
+    const harness = buildSource(() => response(graphMessage("m12")));
+
+    const body = await harness.source.getMessage({ id: "m12" });
+
+    expect(body.attachments).toEqual([]);
+    expect(harness.urls).toHaveLength(1);
+  });
+
+  it("getAttachment 把 base64 解码成原始字节", async () => {
+    const harness = buildSource(() =>
+      response({
+        id: "att1",
+        name: "a.txt",
+        contentType: "text/plain",
+        size: 5,
+        isInline: false,
+        contentBytes: Buffer.from("hello").toString("base64"),
+      }),
+    );
+
+    const data = await harness.source.getAttachment({ id: "m11" }, "att1");
+
+    expect([...data.content]).toEqual([104, 101, 108, 108, 111]);
+    expect(data.info.filename).toBe("a.txt");
+    expect(data.info.mimeType).toBe("text/plain");
+    expect(harness.urls[0]).toContain("/me/messages/m11/attachments/att1?$select=");
+  });
+
+  it("getAttachment 对 itemAttachment（没有 contentBytes）返回类型化 unsupported", async () => {
+    const harness = buildSource(() =>
+      response({ id: "att2", name: "mail.eml", contentType: "message/rfc822", size: 10, isInline: false }),
+    );
+
+    const failure = await harness.source.getAttachment({ id: "m11" }, "att2").then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(failure).toBeInstanceOf(MailError);
+    if (failure instanceof MailError) expect(failure.code).toBe("unsupported");
+  });
+
+  it("setFlags 用 PATCH 只改给出的旗标，并申请 Mail.ReadWrite", async () => {
+    const harness = buildSource(() => response({ id: "m1" }));
+
+    await harness.source.setFlags({ id: "m1" }, { read: true });
+
+    expect(harness.requests[0]?.method).toBe("PATCH");
+    expect(harness.requests[0]?.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(harness.requests[0]?.body ?? "{}")).toEqual({ isRead: true });
+    expect(harness.scopeRequests[0]).toContain("https://graph.microsoft.com/Mail.ReadWrite");
+  });
+
+  it("move 返回移动后的新定位（Graph 会换 id）", async () => {
+    const harness = buildSource(() => response({ id: "m1-new", parentFolderId: "f-archive" }));
+
+    const moved = await harness.source.move({ id: "m1" }, "f-archive");
+
+    expect(moved).toEqual({ id: "m1-new", folderId: "f-archive" });
+    expect(harness.urls[0]).toContain("/me/messages/m1/move");
+    expect(JSON.parse(harness.requests[0]?.body ?? "{}")).toEqual({ destinationId: "f-archive" });
+  });
+
+  it("delete 默认移入回收站，permanent 才真正 DELETE", async () => {
+    const moves = buildSource(() => response({ id: "m2", parentFolderId: "deleteditems" }));
+    await moves.source.delete({ id: "m2" });
+
+    expect(moves.requests[0]?.url).toContain("/me/messages/m2/move");
+    expect(JSON.parse(moves.requests[0]?.body ?? "{}")).toEqual({ destinationId: "deleteditems" });
+
+    const permanent = buildSource(() => response({}, 204));
+    await permanent.source.delete({ id: "m2" }, { permanent: true });
+
+    expect(permanent.requests[0]?.method).toBe("DELETE");
+    expect(permanent.requests[0]?.url).toContain("/me/messages/m2");
+  });
+
+  it("search 合成 $search KQL，命中带 id 与所在文件夹", async () => {
+    const harness = buildSource(() => response({ value: [{ id: "m20", parentFolderId: "f-inbox" }] }));
+
+    const hits = await harness.source.search({ subject: "周报", from: "alice@example.com", unreadOnly: true, limit: 10 });
+
+    expect(hits).toEqual([{ id: "m20", folderId: "f-inbox" }]);
+    const decoded = decodeURIComponent(harness.urls[0] ?? "");
+    expect(decoded).toContain("/me/messages?");
+    expect(decoded).toContain("$top=10");
+    expect(decoded).toContain('subject:"周报"');
+    expect(decoded).toContain('from:"alice@example.com"');
+    expect(decoded).toContain("$filter=isRead eq false");
+  });
+
+  it("search 带 folderId 时限定到该文件夹集合", async () => {
+    const harness = buildSource(() => response({ value: [{ id: "m21", parentFolderId: "f-sent" }] }));
+
+    const hits = await harness.source.search({ folderId: "f-sent", body: "发票" });
+
+    expect(hits).toEqual([{ id: "m21", folderId: "f-sent" }]);
+    expect(decodeURIComponent(harness.urls[0] ?? "")).toContain("/me/mailFolders/f-sent/messages?");
+  });
+
+  it("search 被服务器拒绝时返回类型化 unsupported，不静默返回空数组", async () => {
+    const harness = buildSource(() => response({ error: { code: "ErrorInvalidRequest" } }, 400));
+
+    const failure = await harness.source.search({ subject: "x" }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+
+    expect(failure).toBeInstanceOf(MailError);
+    if (failure instanceof MailError) {
+      expect(failure.code).toBe("unsupported");
+      expect(failure.message).toContain("搜索");
+    }
+  });
+
+  it("sendViaGraph POST /me/sendMail，申请 Mail.Send，MIME 以 base64 发送", async () => {
+    const harness = buildSource(() => response(null, 202));
+    const mime = "From: user@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody";
+
+    const result = await harness.source.sendViaGraph({
+      mime: new TextEncoder().encode(mime),
+      to: ["bob@example.com"],
+      cc: [],
+      bcc: [],
+      from: "user@example.com",
+    });
+
+    expect(result).toMatchObject({ ok: true, transport: "graph", savedToSent: "server" });
+    expect(harness.urls[0]).toBe("https://graph.microsoft.com/v1.0/me/sendMail");
+    expect(harness.requests[0]?.method).toBe("POST");
+    expect(harness.requests[0]?.headers["Content-Type"]).toBe("text/plain");
+    expect(harness.requests[0]?.headers["Content-Transfer-Encoding"]).toBe("base64");
+    expect(Buffer.from(harness.requests[0]?.body ?? "", "base64").toString("utf8")).toBe(mime);
+    expect(harness.scopeRequests[0]).toContain("https://graph.microsoft.com/Mail.Send");
+    // 令牌只出现在 Authorization 头，不进入 URL。
+    expect(harness.urls[0]).not.toContain("test-access-token");
+  });
+
+  it("sendViaGraph 缺 Mail.Send（HTTP 403）返回 auth，提示重新授权且未送达", async () => {
+    const harness = buildSource(() => response({ error: {} }, 403));
+
+    const result = await harness.source.sendViaGraph({
+      mime: new Uint8Array(),
+      to: ["bob@example.com"],
+      cc: [],
+      bcc: [],
+      from: "user@example.com",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.transport).toBe("graph");
+      expect(result.savedToSent).toBe("none");
+      expect(result.error.code).toBe("auth");
+      expect(result.detail).toContain("Mail.Send");
+    }
+  });
+
+  it("sendViaGraph 静默取令牌缺 scope 时不发请求，返回类型化 auth", async () => {
+    const urls: string[] = [];
+    const scopeRequests: Array<readonly string[] | undefined> = [];
+    const source = new GraphMailSource(
+      makeAccount("graph", {
+        clientId: "11111111-1111-1111-1111-111111111111",
+        cachePath: "/tmp/mailcollect-test-token.json",
+      }),
+      {
+        auth: {
+          getAccessToken: async (extraScopes) => {
+            scopeRequests.push(extraScopes);
+            if (extraScopes !== undefined && extraScopes.length > 0) {
+              throw new MailError("auth", "缺少发信权限，需要重新授权", false);
+            }
+            return "token";
+          },
+          login: async () => undefined,
+        },
+        fetch: async (input) => {
+          urls.push(input);
+          return response(null, 202);
+        },
+      },
+    );
+
+    const result = await source.sendViaGraph({
+      mime: new Uint8Array(),
+      to: ["bob@example.com"],
+      cc: [],
+      bcc: [],
+      from: "user@example.com",
+    });
+
+    expect(scopeRequests[0]).toContain("https://graph.microsoft.com/Mail.Send");
+    expect(urls).toHaveLength(0);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("auth");
+  });
+});
+
+describe("GraphMailSource receivedAt 语义", () => {
+  it("fetch 用 receivedDateTime 作接收时间，sentAt 取 sentDateTime（两者分开）", async () => {
+    const harness = buildSource(() =>
+      response({ value: [graphMessage("m40")], "@odata.deltaLink": DELTA_LINK_1 }),
+    );
+
+    const result = await harness.source.fetch();
+
+    // fixture：receivedDateTime=01:00Z，sentDateTime=00:59Z
+    expect(result.receivedAtByUid?.get("m40")?.toISOString()).toBe("2026-11-04T01:00:00.000Z");
+    expect(result.emails[0]?.sentAt).toBe("2026-11-04T00:59:00.000Z");
+  });
+
+  it("getMessage 的 MessageBody 带 receivedAt，sentAt 取 sentDateTime", async () => {
+    const harness = buildSource(() => response(graphMessage("m41")));
+
+    const body = await harness.source.getMessage({ id: "m41" });
+
+    expect(body.receivedAt?.toISOString()).toBe("2026-11-04T01:00:00.000Z");
+    expect(body.sentAt).toBe("2026-11-04T00:59:00.000Z");
+  });
+
+  it("receiveDateTime 缺失时不填 receivedAt（不造数）", async () => {
+    const harness = buildSource(() =>
+      response({
+        value: [graphMessage("m42", { receivedDateTime: null })],
+        "@odata.deltaLink": DELTA_LINK_1,
+      }),
+    );
+
+    const result = await harness.source.fetch();
+
+    expect(result.receivedAtByUid).toBeUndefined();
   });
 });

@@ -4,8 +4,10 @@ import type { Stream } from "node:stream";
 import type { MailSourceAccount } from "./account.js";
 import { makeCursor, readConfig, readConfigBool, readConfigInt } from "./account.js";
 import { abortedError, isAbortError, toMailError } from "./errors.js";
+// MIME → MessageBody / 附件的解析与 IMAP 共用（为什么放在 imap.ts，见那边的助手注释）。
+import { parseAttachmentData, parseMessageBody } from "./imap.js";
 import { parseMimeEmail } from "./message.js";
-import type { FetchOptions, FetchResult, MailSource } from "./types.js";
+import type { AttachmentData, FetchOptions, FetchResult, FolderInfo, MailSource, MessageBody, MessageRef } from "./types.js";
 import { MailError } from "./types.js";
 
 /**
@@ -18,6 +20,16 @@ import { MailError } from "./types.js";
  *
  * 只读：本适配器只调用 STAT / UIDL / RETR / QUIT，从不发 DELE，也不会改动已读标记
  * （POP3 协议本身没有已读状态与文件夹，也没有推送能力，因此 watch() 返回 null）。
+ *
+ * v1.1 能力边界（「pop3 无 \Seen 时按本地已读语义」）：
+ * - `listFolders()` 只报一个 Inbox（POP3 只有一个邮箱）；
+ * - `getMessage()` / `getAttachment()` 用 UIDL 定位，正文与附件按 MIME 解析；
+ * - `fetch({ folderId })` **忽略** `folderId`：POP3 只有一个 Inbox，传任何文件夹都返回同一个
+ *   邮箱，不报错、不丢邮件；调用方不能把「忽略」当成「已按文件夹过滤」；
+ * - `isRead` **恒为 false**：POP3 没有服务器端已读状态，已读只在本地 store 维护；
+ * - `setFlags` / `move` / `delete` / `search` / `appendSent` / `sendVia*` 一律不实现
+ *   （协议没有对应命令）。调用方按「能力缺失」处理，别把这些当失败：
+ *   已读/移动/删除走本地语义，搜索走本地已同步数据，发信走 SMTP，Sent 只留本地。
  */
 
 const DEFAULT_TLS = true;
@@ -166,6 +178,12 @@ export class Pop3MailSource implements MailSource {
     }
   }
 
+  /**
+   * 拉取新邮件。
+   *
+   * `options.folderId` 被忽略（POP3 只有一个 Inbox）：传任何文件夹都不报错、不丢邮件，
+   * 也不会改变结果；游标是 UIDL 集合，与文件夹无关。
+   */
   async fetch(options: FetchOptions = {}): Promise<FetchResult> {
     return this.#runExclusive(() => this.#fetchOnce(options));
   }
@@ -175,11 +193,27 @@ export class Pop3MailSource implements MailSource {
     return null;
   }
 
-  async close(): Promise<void> {
-    this.#closed = true;
-    await this.#runExclusive(async () => {
-      await this.#disconnect();
-    });
+  /* ---------------------------- v1.1 能力端口 ---------------------------- */
+
+  /** POP3 只有一个邮箱：报一个 Inbox，不做任何 I/O（不需要连接就能回答）。 */
+  async listFolders(): Promise<readonly FolderInfo[]> {
+    return [{ id: "INBOX", name: "Inbox", role: "inbox", unreadCount: 0 }];
+  }
+
+  /**
+   * 读单封邮件。POP3 没有服务器端已读状态，`isRead` 恒为 false：
+   * 已读是本地语义，由 store 维护，适配器不假装能改。
+   */
+  async getMessage(ref: MessageRef): Promise<MessageBody> {
+    const source = await this.#retrieveByUidl(ref.id, "POP3 读邮件");
+    // POP3 没有服务器接收时间：receivedAt 传 null（字段缺省），绝不拿 Date 头冒充。
+    return parseMessageBody(source, { id: ref.id, folderId: null }, false, null);
+  }
+
+  /** 取附件原始字节；id 用 `getMessage()` 给的 MIME partId（非 multipart 时为序号）。 */
+  async getAttachment(ref: MessageRef, attachmentId: string): Promise<AttachmentData> {
+    const source = await this.#retrieveByUidl(ref.id, "POP3 取附件");
+    return parseAttachmentData(source, attachmentId);
   }
 
   async #fetchOnce(options: FetchOptions): Promise<FetchResult> {
@@ -227,6 +261,39 @@ export class Pop3MailSource implements MailSource {
       if (!(err instanceof Error)) throw err;
       return null;
     }
+  }
+
+  /**
+   * 按 UIDL 取一封邮件的 MIME。
+   *
+   * POP3 只能用消息序号 RETR，而序号在删除后会重排，所以每次都先拉 UIDL 列表把
+   * UIDL 翻回当前序号（与 fetch() 的去重映射是同一套）。
+   */
+  async #retrieveByUidl(uidl: string, operation: string): Promise<string> {
+    const trimmed = uidl.trim();
+    if (trimmed.length === 0) {
+      throw new MailError("protocol", `${operation} 需要 POP3 UIDL，收到空值`, false);
+    }
+    return this.#runExclusive(async () => {
+      const client = await this.#ensureClient();
+      try {
+        const entries = parseUidlListing(await client.UIDL());
+        const entry = entries.find((candidate) => candidate.uidl === trimmed);
+        if (entry === undefined) {
+          throw new MailError("protocol", `${operation}：邮箱里没有这封邮件（UIDL 可能已过期，需要重新同步）`, false);
+        }
+        return readRetrResult(await client.RETR(entry.messageNumber));
+      } catch (err) {
+        throw this.#mapError(err);
+      }
+    });
+  }
+
+  async close(): Promise<void> {
+    this.#closed = true;
+    await this.#runExclusive(async () => {
+      await this.#disconnect();
+    });
   }
 
   /**

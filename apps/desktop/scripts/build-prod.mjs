@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -38,9 +38,19 @@ await build({
 // 3) Main + preload.
 await run(process.execPath, [join(here, "build-main.mjs")], here);
 
-// 3.5) The SQLite schema is read at runtime via import.meta.url, so it must sit
-//      next to the bundle — esbuild does not copy non-JS assets.
-cpSync(join(repo, "packages", "core", "src", "store", "schema.sql"), join(out, "schema.sql"));
+// 3.5) The SQLite schema is read at runtime via import.meta.url, so every *.sql
+//      the store reads at runtime must sit next to the bundle — esbuild does not
+//      copy non-JS assets.
+const storeSrc = join(repo, "packages", "core", "src", "store");
+const sqlFiles = readdirSync(storeSrc).filter((name) => name.endsWith(".sql"));
+for (const file of sqlFiles) {
+  cpSync(join(storeSrc, file), join(out, file));
+}
+for (const file of sqlFiles) {
+  if (!existsSync(join(out, file))) {
+    throw new Error(`Missing SQL asset next to the server bundle: ${file}`);
+  }
+}
 
 // 4) Ship the built UI next to the app so the server can serve it.
 const uiOut = join(here, "..", "ui");

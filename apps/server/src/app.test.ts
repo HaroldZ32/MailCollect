@@ -5,13 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RawEmail, Task } from "@mailcollect/shared";
 import { openStore, type Store } from "@mailcollect/core";
 import { createApp } from "./app.js";
-import type { ServerServices } from "./services.js";
+import { createEventBus } from "./services.js";
+import type { EventBus, ServerServices } from "./services.js";
 
 const TOKEN = "test-token";
 let dir: string;
 let store: Store;
 let accountId: string;
 let app: ReturnType<typeof createApp>;
+let events: EventBus;
 
 const services: ServerServices = {
   verifyAccount: vi.fn(async () => ({ ok: true, detail: "OK" })),
@@ -79,7 +81,8 @@ beforeEach(async () => {
   }).id;
   store.upsertEmails([{ ...email, accountId }]);
   store.insertTasks([{ ...task, sourceEmailId: "e1" }]);
-  app = createApp({ store, services, token: TOKEN, version: "test" });
+  events = createEventBus();
+  app = createApp({ store, services: { ...services, events }, token: TOKEN, version: "test" });
 });
 
 afterEach(() => {
@@ -304,5 +307,49 @@ describe("http api", () => {
     expect(first).toBeDefined();
     expect(Object.keys(first ?? {})).not.toContain("entity_id");
     expect(Object.keys(first ?? {})).not.toContain("device_id");
+  });
+
+  it("streams the v1.1 classification / recompute / send events over SSE", async () => {
+    const controller = new AbortController();
+    const res = await app.request(`/api/events?token=${TOKEN}`, { signal: controller.signal });
+    expect(res.status).toBe(200);
+    const body = res.body;
+    if (body === null) throw new Error("SSE 响应没有 body");
+
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let raw = "";
+    const eventNames = (): string[] =>
+      [...raw.matchAll(/^event: (.+)$/gm)].map((match) => match[1] ?? "");
+    const waitFor = async (name: string): Promise<void> => {
+      for (let guard = 0; guard < 20 && !eventNames().includes(name); guard += 1) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        raw += decoder.decode(chunk.value, { stream: true });
+      }
+    };
+
+    try {
+      await waitFor("ready");
+      events.emit({
+        type: "classification",
+        data: { emailId: "e1", accountId, categoryIds: ["c1"] },
+      });
+      events.emit({
+        type: "recompute",
+        data: { jobId: "job-1", done: 1, total: 2, finished: false },
+      });
+      events.emit({
+        type: "send",
+        data: { outboxId: "o1", accountId, status: "sent", emailId: "e1", error: null },
+      });
+      for (const name of ["classification", "recompute", "send"]) await waitFor(name);
+
+      expect(eventNames()).toEqual(
+        expect.arrayContaining(["ready", "classification", "recompute", "send"]),
+      );
+    } finally {
+      controller.abort();
+    }
   });
 });

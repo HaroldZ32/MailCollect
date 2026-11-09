@@ -5,7 +5,11 @@ import { Store } from "./store.js";
 
 export * from "./db.js";
 export * from "./crypto.js";
+export * from "./errors.js";
 export * from "./mappers.js";
+export * from "./cursor.js";
+export * from "./migrate.js";
+export * from "./repos.js";
 export * from "./store.js";
 
 /**

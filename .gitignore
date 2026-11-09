@@ -31,3 +31,9 @@ apps/ui/.shots/
 .mpd/lsp/
 .mpd/project-init.json
 .codegraph/
+
+# agent runtime state (never shipped)
+.mpd/cellwork/
+.mpd/session-gate/
+.tmp-home/
+apps/ui/dist-test/

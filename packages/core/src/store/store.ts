@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import type {
   Account,
   BroadcastVerdict,
-  ChangeLogRow,
-  ChangeOp,
   CreateAccountInput,
   EmailListQuery,
   LlmConfig,
@@ -21,70 +18,75 @@ import type {
   UpsertProfileInput,
   UserProfile,
 } from "@mailcollect/shared";
-import { bit, type Db, type SqlValue } from "./db.js";
+import { bit, type SqlValue } from "./db.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
+import { decodeCursor, encodeCursor } from "./cursor.js";
+import { migrateSchema } from "./migrate.js";
 import {
+  EMPTY_EMAIL_EXTRAS,
+  serializeAttachments,
+  serializeEmailRef,
   toAccount,
-  toChangeLogRow,
   toEmail,
+  toEmailExtras,
   toProfile,
   toTask,
   toVerdict,
   type AccountRow,
-  type ChangeLogDbRow,
+  type EmailExtras,
+  type EmailExtrasInput,
   type EmailRow,
   type LlmConfigRow,
   type ProfileRow,
   type TaskRow,
   type VerdictRow,
 } from "./mappers.js";
+import { LIKE_ESCAPE, containsLike } from "./like.js";
+import { applySendInput, StoreRepos, type StoreDeps } from "./repos.js";
 
-export interface StoreOptions {
-  db: Db;
-  /** AES key used for mailbox secrets; see crypto.ts. */
-  key: Buffer;
-  userId: string;
-  deviceId: string;
-}
+export type StoreOptions = StoreDeps;
 
 const nowIso = (): string => new Date().toISOString();
 
-const encodeCursor = (sentAt: string, id: string): string =>
-  Buffer.from(`${sentAt}|${id}`, "utf8").toString("base64url");
-
-const decodeCursor = (cursor: string): { sentAt: string; id: string } | null => {
-  try {
-    const raw = Buffer.from(cursor, "base64url").toString("utf8");
-    const idx = raw.indexOf("|");
-    if (idx < 0) return null;
-    return { sentAt: raw.slice(0, idx), id: raw.slice(idx + 1) };
-  } catch {
-    return null;
-  }
-};
+/**
+ * Message-ID fallback matching window (days). Used only when the server moved a
+ * message and the adapter could not resolve its new locator (`unresolved`): the
+ * same account + same Message-ID + same folder within this window is the same
+ * physical mail. A wide-but-bounded window keeps a reused Message-ID from two
+ * unrelated messages apart.
+ */
+const MESSAGE_ID_MATCH_WINDOW_DAYS = 1;
 
 /**
  * All local persistence goes through here. No SQL leaks into the server or the
  * pipeline, and every write appends to `change_log` so the reserved cloud-sync
  * seam has a complete ordered history to replay.
+ *
+ * The v1.1 aggregates (category / rule / tag / folder / draft / outbox / init
+ * state / send config) live on {@link StoreRepos}; this class adds the v1 ones
+ * and owns boot-time migration.
  */
-export class Store {
-  private readonly db: Db;
-  private readonly key: Buffer;
-  private readonly userId: string;
-  private readonly deviceId: string;
-  private revCounter = 0;
-
+export class Store extends StoreRepos {
   constructor(opts: StoreOptions) {
-    this.db = opts.db;
-    this.key = opts.key;
-    this.userId = opts.userId;
-    this.deviceId = opts.deviceId;
+    super(opts);
   }
 
+  /**
+   * Applies the v1 schema, the additive v1.1 migration and the seed rules.
+   *
+   * Repeatable by construction: `schema.sql` / `schema-v11.sql` only create, the
+   * column additions are PRAGMA-guarded, the "was this v1?" answer comes from the
+   * persisted `schema_version` marker, and seeding is marker-guarded. A v1
+   * database therefore upgrades in place, keeping profile / accounts / emails /
+   * tasks / change_log intact, and a second boot changes nothing.
+   */
   migrate(): void {
-    const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
-    this.db.exec(schema);
+    const result = migrateSchema(this.db);
+    if (result.legacy) this.markUpgradedFromV1();
+    // A fresh database seeds the rules here so the wizard can display them;
+    // `rules_seeded` makes every later call a no-op, and a rule the user deleted
+    // is never replayed. `upsertProfile` reconciles 「点名给我」 with the profile.
+    this.ensureSeedRules();
   }
 
   close(): void {
@@ -93,34 +95,6 @@ export class Store {
 
   get driver(): string {
     return this.db.driver;
-  }
-
-  /* ------------------------------- change log ------------------------------ */
-
-  private rev(): string {
-    this.revCounter += 1;
-    return `${Date.now().toString(36)}-${this.revCounter.toString(36)}`;
-  }
-
-  private log(entity: string, entityId: string, op: ChangeOp, payload: unknown): void {
-    this.db
-      .prepare(
-        `INSERT INTO change_log (entity, entity_id, rev, device_id, op, payload, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(entity, entityId, this.rev(), this.deviceId, op, JSON.stringify(payload), nowIso());
-  }
-
-  head(): number {
-    const row = this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log").get<{ seq: number }>();
-    return Number(row?.seq ?? 0);
-  }
-
-  changes(since: number, limit = 500): ChangeLogRow[] {
-    return this.db
-      .prepare("SELECT * FROM change_log WHERE seq > ? ORDER BY seq ASC LIMIT ?")
-      .all<ChangeLogDbRow>(since, limit)
-      .map(toChangeLogRow);
   }
 
   /* -------------------------------- profile -------------------------------- */
@@ -159,6 +133,10 @@ export class Store {
     const profile = this.getProfile();
     if (!profile) throw new Error("profile write failed");
     this.log("user_profile", id, existing ? "update" : "insert", profile);
+    // The 「点名给我」 seed depends on the profile's names/aliases/addresses, so
+    // every profile save re-evaluates it through shared.planSeedPersonalReconcile
+    // (no-op once unchanged, never resurrects a tombstoned or user-edited rule).
+    this.reconcileSeedPersonalRule();
     return profile;
   }
 
@@ -182,10 +160,15 @@ export class Store {
   createAccount(input: CreateAccountInput): Account {
     const id = randomUUID();
     const now = nowIso();
+    // v1.1 outbound settings are non-secret config entries; the SMTP/EWS password
+    // is AES-256-GCM encrypted exactly like the inbound mailbox secret (C2).
+    const config = input.send ? applySendInput(input.config, input.send) : { ...input.config };
+    const smtpPassword = input.send?.smtpPassword;
     this.db
       .prepare(
-        `INSERT INTO account (id, user_id, provider, label, email, config_json, secret_cipher, enabled, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+        `INSERT INTO account (id, user_id, provider, label, email, config_json, secret_cipher,
+                              smtp_secret_cipher, enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       )
       .run(
         id,
@@ -193,10 +176,11 @@ export class Store {
         input.provider,
         input.label,
         input.email,
-        JSON.stringify(input.config),
+        JSON.stringify(config),
         // Graph device-code accounts legitimately have no secret to paste; store
         // NULL instead of an undecryptable empty ciphertext.
         input.secret.length > 0 ? encryptSecret(this.key, input.secret) : null,
+        smtpPassword && smtpPassword.length > 0 ? encryptSecret(this.key, smtpPassword) : null,
         now,
       );
     const row = this.db.prepare("SELECT * FROM account WHERE id = ?").get<AccountRow>(id);
@@ -213,10 +197,72 @@ export class Store {
     return account;
   }
 
+  /**
+   * Deletes an account and every row its foreign keys cascade into.
+   *
+   * A cascade is still a write: the affected rows are SELECTed first (inside the
+   * same transaction) and each one is appended to `change_log` with
+   * `op=delete`, so the reserved sync seam can replay the whole account removal
+   * instead of resurrecting orphaned mail / tags / folders / drafts / outbox
+   * items on the next device. Same rule as `deleteCategory`.
+   */
   deleteAccount(id: string): boolean {
-    const result = this.db.prepare("DELETE FROM account WHERE id = ?").run(id);
-    if (result.changes > 0) this.log("account", id, "delete", { id });
-    return result.changes > 0;
+    const removed = this.tx(() => {
+      const emails = this.db
+        .prepare("SELECT id FROM raw_email WHERE account_id = ?")
+        .all<{ id: string }>(id);
+      const verdicts = this.db
+        .prepare(
+          "SELECT email_id FROM broadcast_verdict WHERE email_id IN (SELECT id FROM raw_email WHERE account_id = ?)",
+        )
+        .all<{ email_id: string }>(id);
+      const tasks = this.db
+        .prepare(
+          "SELECT id FROM task WHERE source_email_id IN (SELECT id FROM raw_email WHERE account_id = ?)",
+        )
+        .all<{ id: string }>(id);
+      const tags = this.db
+        .prepare(
+          "SELECT * FROM tag WHERE email_id IN (SELECT id FROM raw_email WHERE account_id = ?)",
+        )
+        .all<{ id: string; email_id: string }>(id);
+      const folders = this.db
+        .prepare("SELECT path FROM folder WHERE account_id = ?")
+        .all<{ path: string }>(id);
+      const drafts = this.db
+        .prepare("SELECT id FROM draft WHERE account_id = ?")
+        .all<{ id: string }>(id);
+      const outbox = this.db
+        .prepare("SELECT id FROM outbox WHERE account_id = ?")
+        .all<{ id: string }>(id);
+      const cursors = this.db
+        .prepare("SELECT account_id FROM sync_cursor WHERE account_id = ?")
+        .all<{ account_id: string }>(id);
+
+      const result = this.db.prepare("DELETE FROM account WHERE id = ?").run(id);
+      if (result.changes === 0) return 0;
+
+      this.clearFolderCursors(id);
+      this.log("account", id, "delete", { id });
+      for (const row of emails) this.log("raw_email", row.id, "delete", { id: row.id, accountId: id });
+      for (const row of verdicts) {
+        this.log("broadcast_verdict", row.email_id, "delete", { emailId: row.email_id, accountId: id });
+      }
+      for (const row of tasks) this.log("task", row.id, "delete", { id: row.id, accountId: id });
+      for (const row of tags) {
+        this.log("tag", row.id, "delete", { id: row.id, emailId: row.email_id, accountId: id });
+      }
+      for (const row of folders) {
+        this.log("folder", `${id}:${row.path}`, "delete", { accountId: id, path: row.path });
+      }
+      for (const row of drafts) this.log("draft", row.id, "delete", { id: row.id, accountId: id });
+      for (const row of outbox) this.log("outbox", row.id, "delete", { id: row.id, accountId: id });
+      for (const row of cursors) {
+        this.log("sync_cursor", row.account_id, "delete", { accountId: id });
+      }
+      return result.changes;
+    });
+    return removed > 0;
   }
 
   markSynced(accountId: string, at: string): void {
@@ -250,21 +296,142 @@ export class Store {
 
   /* --------------------------------- emails -------------------------------- */
 
-  /** Inserts only messages we have not seen; returns the ids that were new. */
-  upsertEmails(emails: RawEmail[]): { inserted: number; ids: string[] } {
-    const stmt = this.db.prepare(
+  /**
+   * Inserts only messages we have not seen; returns the ids that were new.
+   *
+   * With `folderId` (v1.1 per-folder sync) the row records its folder and its
+   * authoritative server locator, and — because IMAP UIDs are folder-scoped —
+   * the local dedupe key becomes `"<folderId>\u001f<provider uid>"`. The true
+   * provider id stays in `provider_ref_json.ref.id`; without the compound key a
+   * message in Archive with uid 5 would collide with inbox uid 5 and be dropped
+   * by `UNIQUE (account_id, uid)`.
+   *
+   * A message that MOVED keeps its local row: the next sync returns it under a
+   * NEW provider id, so an existing row is matched by its persisted ref and
+   * re-pointed instead of inserted again. A v1 row (plain uid, no ref) is adopted
+   * on its first folder-scoped sync instead of being duplicated.
+   *
+   * When the adapter moved a message but could not resolve the new locator
+   * (`unresolved`), neither the uid nor the ref can identify it. The last-resort
+   * match is `Message-ID` + same folder + a sent date within
+   * {@link MESSAGE_ID_MATCH_WINDOW_DAYS}: without it the next sync would insert a
+   * second local row for the same physical mail.
+   */
+  upsertEmails(
+    emails: RawEmail[],
+    folderId?: string | null,
+    extras?: ReadonlyMap<string, EmailExtrasInput>,
+  ): { inserted: number; ids: string[] } {
+    const insert = this.db.prepare(
       `INSERT OR IGNORE INTO raw_email (
          id, account_id, uid, message_id, thread_id, from_name, from_email,
          to_json, cc_json, subject, sent_at, body_text, has_attachments,
-         headers_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         headers_json, created_at, folder, provider_ref_json, received_at, attachments_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const findByUid = this.db.prepare(
+      "SELECT id, uid, folder, provider_ref_json FROM raw_email WHERE account_id = ? AND uid = ?",
+    );
+    // A persisted ref identifies a message only WITH its folder: IMAP UIDs are
+    // folder-scoped, so ref {id:"5", folder:"INBOX"} is not the Archive message
+    // with uid 5. A ref without a folder (protocols with mailbox-wide ids) still
+    // matches anywhere.
+    const findByRef = this.db.prepare(
+      `SELECT id, uid, folder, provider_ref_json FROM raw_email
+        WHERE account_id = ?
+          AND CASE WHEN json_valid(provider_ref_json)
+                   THEN json_extract(provider_ref_json, '$.ref.id') END = ?
+          AND (
+            CASE WHEN json_valid(provider_ref_json)
+                 THEN json_extract(provider_ref_json, '$.ref.folderId') END = ?
+            OR CASE WHEN json_valid(provider_ref_json)
+                    THEN json_extract(provider_ref_json, '$.ref.folderId') END IS NULL
+          )
+        LIMIT 1`,
+    );
+    const findLegacy = this.db.prepare(
+      "SELECT id, uid, folder, provider_ref_json FROM raw_email WHERE account_id = ? AND uid = ? AND provider_ref_json IS NULL",
+    );
+    // Last resort: a message whose server locator is unknown (`unresolved`) comes
+    // back under a new id. Message-ID + folder + a nearby sent date identifies the
+    // same physical mail, so the existing row is re-pointed instead of duplicated.
+    const findByMessageId = this.db.prepare(
+      `SELECT id, uid, folder, provider_ref_json,
+              ABS(julianday(sent_at) - julianday(?)) AS distance
+         FROM raw_email
+        WHERE account_id = ?
+          AND message_id = ?
+          AND message_id <> ''
+          AND folder = ?
+          AND ABS(julianday(sent_at) - julianday(?)) <= ?
+        ORDER BY distance ASC
+        LIMIT 1`,
+    );
+    const reidentify = this.db.prepare(
+      "UPDATE raw_email SET uid = ?, folder = ?, provider_ref_json = ? WHERE id = ?",
+    );
+    const writeExtras = this.db.prepare(
+      "UPDATE raw_email SET received_at = ?, attachments_json = ? WHERE id = ?",
+    );
+    type ExistingRow = {
+      id: string;
+      uid: string;
+      folder: string;
+      provider_ref_json: string | null;
+    };
+    const localUid = (folder: string | null, uid: string): string =>
+      folder === null ? uid : `${folder}\u001f${uid}`;
+
     const ids: string[] = [];
     for (const email of emails) {
-      const result = stmt.run(
+      const folder = folderId ?? null;
+      const uid = localUid(folder, email.uid);
+      const refJson = folder === null ? null : serializeEmailRef({ id: email.uid, folderId: folder });
+      if (folder !== null) {
+        const existing =
+          findByUid.get<ExistingRow>(email.accountId, uid) ??
+          findByRef.get<ExistingRow>(email.accountId, email.uid, folder) ??
+          findLegacy.get<ExistingRow>(email.accountId, email.uid) ??
+          (email.messageId.trim() === ""
+            ? undefined
+            : findByMessageId.get<ExistingRow>(
+                email.sentAt,
+                email.accountId,
+                email.messageId,
+                folder,
+                email.sentAt,
+                MESSAGE_ID_MATCH_WINDOW_DAYS,
+              ));
+        if (existing) {
+          if (
+            existing.uid !== uid ||
+            existing.folder !== folder ||
+            existing.provider_ref_json !== refJson
+          ) {
+            reidentify.run(uid, folder, refJson, existing.id);
+            const extra = extras?.get(email.id);
+            if (extra) {
+              writeExtras.run(
+                extra.receivedAt ?? null,
+                serializeAttachments(extra.attachments ?? []),
+                existing.id,
+              );
+            }
+            this.log("raw_email", existing.id, "update", {
+              id: existing.id,
+              folder,
+              ref: { id: email.uid, folderId: folder },
+            });
+          }
+          continue;
+        }
+      } else if (findByUid.get(email.accountId, email.uid)) {
+        continue;
+      }
+      const result = insert.run(
         email.id,
         email.accountId,
-        email.uid,
+        uid,
         email.messageId,
         email.threadId,
         email.fromName,
@@ -277,11 +444,80 @@ export class Store {
         bit(email.hasAttachments),
         JSON.stringify(email.headers),
         email.createdAt,
+        folder ?? "INBOX",
+        refJson,
+        extras?.get(email.id)?.receivedAt ?? null,
+        serializeAttachments(extras?.get(email.id)?.attachments ?? []),
       );
       if (result.changes > 0) ids.push(email.id);
     }
     for (const id of ids) this.log("raw_email", id, "insert", { id });
     return { inserted: ids.length, ids };
+  }
+
+  /**
+   * Writes the rule-projection metadata of one message (received time + attachment
+   * metadata, never the attachment bytes). Omitted fields keep their value so a
+   * later enrichment cannot erase a previously stored received time.
+   */
+  setEmailExtras(emailId: string, extras: EmailExtrasInput): boolean {
+    const current = this.getEmailExtras(emailId);
+    const receivedChanged =
+      extras.receivedAt !== undefined && extras.receivedAt !== current.receivedAt;
+    const attachmentsChanged =
+      extras.attachments !== undefined &&
+      serializeAttachments(extras.attachments) !== serializeAttachments(current.attachments);
+    // Idempotent: a per-folder resync reports the same values every time, and a
+    // no-op must not append a change_log row (the sync seam would grow forever).
+    if (!receivedChanged && !attachmentsChanged) return this.getEmail(emailId) !== null;
+
+    const sets: string[] = [];
+    const params: SqlValue[] = [];
+    if (extras.receivedAt !== undefined) {
+      sets.push("received_at = ?");
+      params.push(extras.receivedAt);
+    }
+    if (extras.attachments !== undefined) {
+      sets.push("attachments_json = ?");
+      params.push(serializeAttachments(extras.attachments));
+    }
+    params.push(emailId);
+    const result = this.db
+      .prepare(`UPDATE raw_email SET ${sets.join(", ")} WHERE id = ?`)
+      .run(...params);
+    if (result.changes === 0) return false;
+    // The sync seam only needs the identity; metadata (including attachment
+    // filenames) stays in the row and is read back by id — same minimal-payload
+    // rule the outbox logging follows after T63.
+    this.log("raw_email", emailId, "update", { id: emailId });
+    return true;
+  }
+
+  /**
+   * Writes the server-reported receive time for one fetched batch (T64 contract:
+   * `FetchResult.receivedAtByUid`, key = provider uid).
+   *
+   * Rules that make this trustworthy:
+   * - an email WITHOUT a map entry is skipped, never written as NULL — a later
+   *   sync can still fill it and an existing value is never wiped;
+   * - the stored value is the server receive time converted to ISO, never
+   *   `RawEmail.sentAt` (the sender's Date header);
+   * - idempotent: re-syncing the same batch writes nothing and logs nothing.
+   */
+  applyReceivedAt(emails: readonly RawEmail[], receivedAtByUid: ReadonlyMap<string, Date>): void {
+    for (const email of emails) {
+      const receivedAt = receivedAtByUid.get(email.uid);
+      if (receivedAt === undefined) continue;
+      this.setEmailExtras(email.id, { receivedAt: receivedAt.toISOString() });
+    }
+  }
+
+  /** Attachment metadata + received time for the rules projection (never bytes). */
+  getEmailExtras(emailId: string): EmailExtras {
+    const row = this.db
+      .prepare("SELECT received_at, attachments_json FROM raw_email WHERE id = ?")
+      .get<{ received_at: string | null; attachments_json: string | null }>(emailId);
+    return row ? toEmailExtras(row) : EMPTY_EMAIL_EXTRAS;
   }
 
   listEmails(query: EmailListQuery): { items: RawEmail[]; nextCursor: string | null } {
@@ -293,8 +529,11 @@ export class Store {
       params.push(query.accountId);
     }
     if (query.search) {
-      where.push("(subject LIKE ? OR from_email LIKE ? OR body_text LIKE ?)");
-      const like = `%${query.search}%`;
+      // Wildcards in the user's input are literals, not LIKE operators.
+      where.push(
+        `(subject LIKE ? ${LIKE_ESCAPE} OR from_email LIKE ? ${LIKE_ESCAPE} OR body_text LIKE ? ${LIKE_ESCAPE})`,
+      );
+      const like = containsLike(query.search);
       params.push(like, like, like);
     }
     if (query.cursor) {

@@ -1,0 +1,128 @@
+{
+  "recordedWith": "v1 pipeline (pipeline/extract.ts + pipeline/broadcast.ts, before C7 cutover)",
+  "recordedAt": "2026-11-09T03:53:24.661Z",
+  "profile": {
+    "id": "user-parity",
+    "displayName": "张三",
+    "aliases": [
+      "San Zhang"
+    ],
+    "emails": [
+      "zhangsan@example.com"
+    ],
+    "timezone": "Asia/Shanghai",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  },
+  "skipped": [],
+  "perEmail": {
+    "m01-zh-name": {
+      "verdict": "personal",
+      "signals": [
+        "user:in-to",
+        "recipients:<=3"
+      ],
+      "todo": true,
+      "taskStatus": "confirmed"
+    },
+    "m02-en-alias": {
+      "verdict": "personal",
+      "signals": [
+        "user:in-to",
+        "recipients:<=3"
+      ],
+      "todo": true,
+      "taskStatus": "confirmed"
+    },
+    "m03-email-local": {
+      "verdict": "personal",
+      "signals": [
+        "user:in-to",
+        "recipients:<=3"
+      ],
+      "todo": true,
+      "taskStatus": "confirmed"
+    },
+    "m04-list-id": {
+      "verdict": "broadcast",
+      "signals": [
+        "header:list-id",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m05-precedence": {
+      "verdict": "broadcast",
+      "signals": [
+        "header:precedence",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m06-no-reply": {
+      "verdict": "broadcast",
+      "signals": [
+        "from:no-reply",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m07-pure-ad": {
+      "verdict": "broadcast",
+      "signals": [
+        "header:list-id",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m08-deadline": {
+      "verdict": "personal",
+      "signals": [
+        "user:in-to",
+        "recipients:<=3"
+      ],
+      "todo": true,
+      "taskStatus": "confirmed"
+    },
+    "m09-window": {
+      "verdict": "personal",
+      "signals": [
+        "user:in-to",
+        "recipients:<=3"
+      ],
+      "todo": true,
+      "taskStatus": "confirmed"
+    },
+    "m10-bulk-recipients": {
+      "verdict": "broadcast",
+      "signals": [
+        "recipients:>=10",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m11-dup-a": {
+      "verdict": "broadcast",
+      "signals": [
+        "body-hash",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    },
+    "m12-dup-b": {
+      "verdict": "broadcast",
+      "signals": [
+        "body-hash",
+        "user:in-to"
+      ],
+      "todo": false,
+      "taskStatus": "candidate"
+    }
+  }
+}

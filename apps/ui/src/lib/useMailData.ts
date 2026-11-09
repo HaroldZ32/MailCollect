@@ -3,6 +3,7 @@ import type {
   AccountView,
   BulkDecisionInput,
   CreateAccountInput,
+  InitState,
   LlmConfigInput,
   LlmConfigView,
   LlmTestInput,
@@ -18,6 +19,8 @@ import type {
 } from "@mailcollect/shared";
 import { api, ApiError, eventsUrl, hasInjectedRuntime, isApiError, resolveToken } from "./api";
 import { createMockAccounts, createMockLlmConfigs, createMockProfile, createMockTasks } from "./mock";
+import { maybeForceThrow } from "../components/ErrorBoundary";
+import { DATA_CHANGED_EVENT, ONBOARDING_CHANGED_EVENT, type DataChangedScope } from "../components/OnboardingWizard";
 
 export type ConnectionMode = "loading" | "live" | "demo" | "offline";
 
@@ -61,6 +64,10 @@ export interface MailData {
   readonly graphLoggedIn: Readonly<Record<string, boolean>>;
   readonly streamConnected: boolean;
   readonly canLoginDevice: boolean;
+  /** v1.1 初始化状态；null = 未知（未连接，或服务端尚未接入该端点）。 */
+  readonly onboarding: InitState | null;
+  readonly onboardingLoading: boolean;
+  readonly refreshOnboarding: () => void;
   readonly profile: UserProfile | null;
   readonly accounts: readonly AccountView[];
   readonly tasks: readonly Task[];
@@ -125,6 +132,151 @@ function noticeOf(error: unknown): Notice {
   return { kind: "error", text: failureText(error) };
 }
 
+/* ------------------------------ 可复用请求层 ------------------------------ */
+
+/**
+ * 面板数据层（v1.1）。约定：
+ * - 同一个 key 的在途请求共享一个 Promise（去重），并发面板不会重复打服务端；
+ * - 命中 TTL 缓存直接复用，切面板不产生新请求；
+ * - 结果按浅相等复用旧引用，服务器返回等价数据时不触发下游重渲染；
+ * - AbortController 只在「强制刷新 / invalidateResources」时中止在途请求；
+ *   组件卸载只丢弃结果，不中止共享请求（否则会连带打断同 key 的其它面板）。
+ */
+const RESOURCE_TTL_MS = 30_000;
+
+interface CachedResource {
+  readonly value: unknown;
+  readonly at: number;
+}
+
+interface InflightResource {
+  readonly controller: AbortController;
+  readonly promise: Promise<unknown>;
+}
+
+const resourceCache = new Map<string, CachedResource>();
+const inflightResources = new Map<string, InflightResource>();
+
+function shallowSame(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, index) => Object.is(item, b[index]));
+  }
+  if (isRecord(a) && isRecord(b)) {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every((key) => Object.is(a[key], b[key]));
+  }
+  return false;
+}
+
+function keepStable<T>(previous: T | null, next: T): T {
+  return previous !== null && shallowSame(previous, next) ? previous : next;
+}
+
+/** 写操作成功后失效某个前缀下的缓存，并中止在途请求；前缀约定见各调用点。 */
+export function invalidateResources(prefix: string): void {
+  for (const key of [...resourceCache.keys()]) {
+    if (key.startsWith(prefix)) resourceCache.delete(key);
+  }
+  for (const [key, entry] of [...inflightResources]) {
+    if (!key.startsWith(prefix)) continue;
+    entry.controller.abort();
+    inflightResources.delete(key);
+  }
+}
+
+async function loadSharedResource<T>(
+  key: string,
+  load: (signal: AbortSignal) => Promise<T>,
+  force: boolean,
+): Promise<T> {
+  const cached = resourceCache.get(key);
+  if (!force && cached !== undefined && Date.now() - cached.at < RESOURCE_TTL_MS) {
+    return cached.value as T;
+  }
+  const pending = inflightResources.get(key);
+  if (pending !== undefined) return pending.promise as Promise<T>;
+  const controller = new AbortController();
+  const promise = load(controller.signal)
+    .then((value) => {
+      resourceCache.set(key, { value, at: Date.now() });
+      return value;
+    })
+    .finally(() => {
+      const current = inflightResources.get(key);
+      if (current !== undefined && current.controller === controller) inflightResources.delete(key);
+    });
+  inflightResources.set(key, { controller, promise });
+  return promise;
+}
+
+export interface ResourceResult<T> {
+  readonly data: T | null;
+  readonly loading: boolean;
+  readonly error: string | null;
+  readonly refresh: () => void;
+}
+
+export interface ResourceOptions {
+  readonly enabled?: boolean;
+}
+
+export function useResource<T>(
+  key: string,
+  load: (signal: AbortSignal) => Promise<T>,
+  options: ResourceOptions = {},
+): ResourceResult<T> {
+  const enabled = options.enabled !== false;
+  const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({
+    data: null,
+    loading: enabled,
+    error: null,
+  });
+  const [nonce, setNonce] = useState(0);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const forceRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setState({ data: null, loading: false, error: null });
+      return;
+    }
+    let stale = false;
+    const force = forceRef.current;
+    forceRef.current = false;
+    setState((previous) => ({ data: previous.data, loading: true, error: null }));
+    void loadSharedResource(key, (signal) => loadRef.current(signal), force).then(
+      (value) => {
+        if (stale) return;
+        setState((previous) => ({ data: keepStable(previous.data, value), loading: false, error: null }));
+      },
+      (error: unknown) => {
+        if (stale) return;
+        if (error instanceof DOMException && error.name === "AbortError") {
+          // 请求被 invalidateResources 中止：数据保持旧值，但 loading 必须落回，否则面板永久转圈。
+          setState((previous) => ({ ...previous, loading: false }));
+          return;
+        }
+        setState((previous) => ({ data: previous.data, loading: false, error: failureText(error) }));
+      },
+    );
+    return () => {
+      stale = true;
+    };
+  }, [key, enabled, nonce]);
+
+  const refresh = useCallback(() => {
+    forceRef.current = true;
+    setNonce((value) => value + 1);
+  }, []);
+
+  return { data: state.data, loading: state.loading, error: state.error, refresh };
+}
+
 async function fetchLiveData(): Promise<LiveData> {
   const [profile, accounts, taskResponse, llmConfigs] = await Promise.all([
     api.profile.get(),
@@ -133,6 +285,25 @@ async function fetchLiveData(): Promise<LiveData> {
     api.llm.list(),
   ]);
   return { profile, accounts, tasks: taskResponse.items, llmConfigs };
+}
+
+/**
+ * 首屏数据加载的去重入口：StrictMode 的双 effect、App 重试与刷新会并发调用，
+ * 这里共享同一个在途 Promise，服务端只被打一轮；失败后清空，下一次调用重新请求。
+ */
+let liveInflight: Promise<LiveData> | null = null;
+
+function loadLiveDataOnce(): Promise<LiveData> {
+  if (liveInflight === null) {
+    liveInflight = (async () => {
+      const health = await api.health();
+      if (!health.ok) throw new ApiError("internal", "本地服务健康检查未通过", 500);
+      return fetchLiveData();
+    })().finally(() => {
+      liveInflight = null;
+    });
+  }
+  return liveInflight;
 }
 
 function mergeTime(time: TaskTime | null, patch: UpdateTaskInput): TaskTime | null {
@@ -273,6 +444,8 @@ function streamErrorMessage(value: unknown): string | null {
 }
 
 export function useMailData(): MailData {
+  // 仅测试/开发构建可达：让根级 ErrorBoundary 接管 App 的渲染错误（AC-31）。
+  maybeForceThrow("root");
   const [mode, setMode] = useState<ConnectionMode>("loading");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -289,6 +462,58 @@ export function useMailData(): MailData {
   const [streamConnected, setStreamConnected] = useState(false);
   const streamConnectedRef = useRef(false);
   const deviceLoginAccountRef = useRef<string | null>(null);
+
+  // v1.1 初始化状态：由可复用数据层拉取。服务端尚未接入该端点时静默降级为 null，
+  // 不阻塞主数据加载，也不向用户弹错误（并行 lane 期间是常态）。
+  const onboardingResource = useResource<InitState | null>(
+    "onboarding",
+    async (signal) => {
+      try {
+        return await api.onboarding.get({ signal });
+      } catch (error) {
+        if (isApiError(error) && (error.status === 404 || error.code === "not_found")) return null;
+        throw error;
+      }
+    },
+    { enabled: mode === "live" },
+  );
+
+  // 向导写完 completed/skipped 后由 T31 的 notifyOnboardingChanged 广播该事件（常量直接复用）。
+  // 顶栏「初始化未完成」与侧栏提示都读这条资源：收到后必须走既有缓存层失效 + 重拉，
+  // 否则入口会一直挂着，只有整页刷新才消失（T61）。
+  // 边界：CustomEvent 只覆盖同一个 window；其它标签页 / Electron 窗口收不到，
+  // 需等各自 onboarding 缓存过期（RESOURCE_TTL_MS）或重新挂载后才会更新，属可接受范围。
+  const refreshOnboarding = onboardingResource.refresh;
+  useEffect(() => {
+    const onChanged = (): void => {
+      invalidateResources("onboarding");
+      refreshOnboarding();
+    };
+    window.addEventListener(ONBOARDING_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(ONBOARDING_CHANGED_EVENT, onChanged);
+  }, [refreshOnboarding]);
+
+  // 向导 / 设置页绕过本 hook 直接调 api.profile / api.accounts / api.llm 写入时，
+  // 它们成功后会广播 DATA_CHANGED_EVENT（与 T61 的 onboarding 事件同一套窗口事件约定）。
+  // 这里按 detail 声明的范围重取对应切片：profile / accounts / llm 的缓存就是下面这些
+  // state，所以「失效」= 重新拉取并覆盖；不整包 reload，避免覆盖 SSE 已推进的 tasks。
+  useEffect(() => {
+    if (mode !== "live") return;
+    const onDataChanged = (event: Event): void => {
+      const scope = (event as CustomEvent<DataChangedScope>).detail ?? {};
+      void (async () => {
+        try {
+          if (scope.profile === true) setProfile(await api.profile.get());
+          if (scope.accounts === true) setAccounts(await api.accounts.list());
+          if (scope.llm === true) setLlmConfigs(await api.llm.list());
+        } catch {
+          // 保持旧值：下一次事件 / 手动刷新 / 重新挂载会纠正。
+        }
+      })();
+    };
+    window.addEventListener(DATA_CHANGED_EVENT, onDataChanged);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, onDataChanged);
+  }, [mode]);
 
   const counts = useMemo(() => deriveCounts(tasks), [tasks]);
 
@@ -312,16 +537,24 @@ export function useMailData(): MailData {
     setLlmConfigs(data.llmConfigs);
   }, []);
 
+  const bootstrapGenerationRef = useRef(0);
+  const tasksRequestRef = useRef(0);
+  const taskPatchSeqRef = useRef(new Map<string, number>());
+
   const bootstrap = useCallback(async () => {
+    const generation = bootstrapGenerationRef.current + 1;
+    bootstrapGenerationRef.current = generation;
+    const current = (): boolean => bootstrapGenerationRef.current === generation;
     setMode("loading");
     setError(null);
     const injected = hasInjectedRuntime();
     try {
-      const health = await api.health();
-      if (!health.ok) throw new ApiError("internal", "本地服务健康检查未通过", 500);
-      applyLiveData(await fetchLiveData());
+      const data = await loadLiveDataOnce();
+      if (!current()) return;
+      applyLiveData(data);
       setMode("live");
     } catch (caught) {
+      if (!current()) return;
       // 未注入运行时（纯浏览器）时，健康检查失败一律回落到演示数据；注入运行时则报连接错误。
       const unauthorized = isApiError(caught) && caught.code === "unauthorized";
       if (!injected && !unauthorized) {
@@ -394,8 +627,12 @@ export function useMailData(): MailData {
   }, [loginAccount]);
 
   const reloadTasks = useCallback(async (): Promise<void> => {
+    const seq = tasksRequestRef.current + 1;
+    tasksRequestRef.current = seq;
     try {
       const response = await api.tasks.list();
+      // 只让最新一次列表请求落地，避免 SSE 重连与手动刷新把旧结果盖到新结果上。
+      if (seq !== tasksRequestRef.current) return;
       setTasks(response.items);
     } catch (caught) {
       if (isApiError(caught) && (caught.code === "network" || caught.code === "unauthorized")) return;
@@ -544,7 +781,7 @@ export function useMailData(): MailData {
     }
     void (async () => {
       try {
-        applyLiveData(await fetchLiveData());
+        applyLiveData(await loadLiveDataOnce());
         pushNotice("ok", "已刷新");
       } catch (caught) {
         pushNotice("error", failureText(caught));
@@ -658,9 +895,14 @@ export function useMailData(): MailData {
         return true;
       }
       if (mode !== "live") return false;
+      const seq = (taskPatchSeqRef.current.get(taskId) ?? 0) + 1;
+      taskPatchSeqRef.current.set(taskId, seq);
       try {
         const updated = await api.tasks.update(taskId, input);
-        setTasks((previous) => previous.map((task) => (task.id === taskId ? updated : task)));
+        // 同一任务连续拖拽时，后发的请求可能先回；只允许最新一次结果落地。
+        if (taskPatchSeqRef.current.get(taskId) === seq) {
+          setTasks((previous) => previous.map((task) => (task.id === taskId ? updated : task)));
+        }
         return true;
       } catch (caught) {
         pushNotice("error", failureText(caught));
@@ -848,6 +1090,9 @@ export function useMailData(): MailData {
     graphLoggedIn,
     streamConnected,
     canLoginDevice: mode === "live" && streamConnected,
+    onboarding: onboardingResource.data,
+    onboardingLoading: onboardingResource.loading,
+    refreshOnboarding: onboardingResource.refresh,
     profile,
     accounts,
     tasks,

@@ -1,0 +1,512 @@
+{
+  "label": "red",
+  "startedAt": "2026-11-09T03:59:15.777Z",
+  "env": {
+    "machine": {
+      "platform": "linux",
+      "release": "7.0.0-38-generic",
+      "cpus": 16,
+      "memoryGb": 29.1
+    },
+    "node": "v24.21.0",
+    "browser": "playwright chromium (headless shell)",
+    "viewport": "1440x960",
+    "sampleCounts": {
+      "rotationSwitches": 40,
+      "reproSwitches": 120,
+      "doubleClicks": 20
+    },
+    "known404": "/api/onboarding"
+  },
+  "phases": {
+    "cold": {
+      "bootMs": 97,
+      "timelineFirstPaintMs": 403,
+      "ms": 541,
+      "failures": 0
+    },
+    "rotation": {
+      "timing": {
+        "n": 40,
+        "min": 24.2,
+        "p50": 31.2,
+        "p95": 32.8,
+        "max": 42.7
+      },
+      "ms": 1453,
+      "failures": 0
+    },
+    "repro": {
+      "timing": {
+        "n": 60,
+        "min": 8.5,
+        "p50": 30.8,
+        "p95": 31.7,
+        "max": 32.2
+      },
+      "ms": 2477,
+      "failures": 0
+    },
+    "double": {
+      "ms": 1762,
+      "failures": 0
+    },
+    "hidden": {
+      "width": 712,
+      "bars": 6,
+      "ms": 1097,
+      "failures": 0
+    },
+    "chunk": {
+      "ms": 31079,
+      "failures": 2
+    },
+    "offline": {
+      "ms": 1827,
+      "failures": 0
+    },
+    "empty": {
+      "ms": 1920,
+      "failures": 0
+    },
+    "forced": {
+      "ms": 3163,
+      "failures": 0
+    }
+  },
+  "failures": [
+    {
+      "phase": "chunk",
+      "message": "恢复网络后点「重试」仍加载不出甘特图（React.lazy 缓存了被拒绝的 Promise）"
+    },
+    {
+      "phase": "chunk",
+      "message": "after-retry: 出现错误卡=1（截图 /home/haroldzhao/MyProj/DshProj/MailCollect/evidence/perf/screenshots/red-chunk-after-retry.png）"
+    }
+  ],
+  "samples": [
+    {
+      "name": "cold-boot",
+      "ms": 97
+    },
+    {
+      "name": "cold-timeline-first-paint",
+      "ms": 403
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 24.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 32.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 28.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 42.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 24.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 25.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 26.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 29.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 32.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 27.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 26.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 26.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 8.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 31
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.8
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.2
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 28.9
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.9
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.1
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 32.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.3
+    }
+  ],
+  "knownMissing": [],
+  "summary": {
+    "hotSwitch": {
+      "n": 100,
+      "min": 8.5,
+      "p50": 31,
+      "p95": 31.8,
+      "max": 42.7
+    },
+    "coldBootMs": 97,
+    "coldTimelineFirstPaintMs": 403,
+    "failures": 2,
+    "passed": false
+  },
+  "finishedAt": "2026-11-09T04:00:02.265Z"
+}

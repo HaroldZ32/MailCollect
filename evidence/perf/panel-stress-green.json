@@ -1,0 +1,2003 @@
+{
+  "label": "green",
+  "startedAt": "2026-11-09T04:34:29.186Z",
+  "env": {
+    "machine": {
+      "platform": "linux",
+      "release": "7.0.0-38-generic",
+      "cpus": 16,
+      "memoryGb": 29.1
+    },
+    "node": "v24.21.0",
+    "browser": "playwright chromium (headless shell)",
+    "viewport": "1440x960",
+    "sampleCounts": {
+      "rotationSwitches": 400,
+      "reproSwitches": 60,
+      "doubleClicks": 20
+    },
+    "known404": []
+  },
+  "phases": {
+    "bundle": {
+      "prod": {
+        "files": 2,
+        "hits": 0
+      },
+      "test": {
+        "files": 2,
+        "hits": 1
+      },
+      "ms": 4,
+      "failures": 0
+    },
+    "cold": {
+      "bootMs": 100,
+      "initialPanel": "inbox",
+      "timelineFirstPaintMs": 117,
+      "ms": 606,
+      "failures": 0
+    },
+    "rotation": {
+      "timing": {
+        "n": 400,
+        "min": 18.3,
+        "p50": 31.2,
+        "p95": 31.9,
+        "max": 69.4
+      },
+      "ms": 13521,
+      "failures": 0
+    },
+    "repro": {
+      "timing": {
+        "n": 60,
+        "min": 22.3,
+        "p50": 30.9,
+        "p95": 31.7,
+        "max": 37.6
+      },
+      "ms": 2216,
+      "failures": 0
+    },
+    "double": {
+      "ms": 1480,
+      "failures": 0
+    },
+    "hidden": {
+      "width": 712,
+      "bars": 6,
+      "ms": 874,
+      "failures": 0
+    },
+    "rules": {
+      "ms": 1061,
+      "failures": 0
+    },
+    "onboarding": {
+      "ms": 24327,
+      "failures": 0
+    },
+    "chunk": {
+      "ms": 1324,
+      "failures": 0
+    },
+    "chunkloop": {
+      "ms": 3064,
+      "failures": 0
+    },
+    "offline": {
+      "ms": 2060,
+      "failures": 0
+    },
+    "empty": {
+      "ms": 3106,
+      "failures": 0
+    },
+    "forced": {
+      "ms": 3920,
+      "failures": 0
+    },
+    "heavy": {
+      "coldTimelineMs": 613,
+      "apiTasks": 1011,
+      "bars": 16,
+      "ms": 11441,
+      "failures": 0
+    }
+  },
+  "failures": [],
+  "samples": [
+    {
+      "name": "cold-boot",
+      "ms": 100
+    },
+    {
+      "name": "cold-timeline-first-paint",
+      "ms": 117
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 21
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 33.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 69.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 34.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 27.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 29.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 29.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 25
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 29.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 29.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 29.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 32.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 25.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 26
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 29.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 32.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 27.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 26.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 33.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 34
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 18.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 29.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 38.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 18.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 36.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 27
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 32
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 28.1
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 32
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 32
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.1
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 28.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 32.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 30.9
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 30.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 33.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 28.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 30.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.3
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.9
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 32
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.1
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.7
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31.4
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.8
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 31
+    },
+    {
+      "name": "rotation:inbox",
+      "ms": 31.6
+    },
+    {
+      "name": "rotation:tasks",
+      "ms": 31.5
+    },
+    {
+      "name": "rotation:timeline",
+      "ms": 33.7
+    },
+    {
+      "name": "rotation:settings",
+      "ms": 29.2
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 22.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 37.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 24.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 31.1
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.4
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.2
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.1
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 28.3
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.5
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 29.8
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 32
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.3
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 31.2
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.5
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 31
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 30.7
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.6
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.4
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.3
+    },
+    {
+      "name": "repro:timeline",
+      "ms": 31.6
+    },
+    {
+      "name": "repro:inbox",
+      "ms": 30.9
+    },
+    {
+      "name": "heavy-1000-cold-timeline",
+      "ms": 613
+    },
+    {
+      "name": "heavy-drag-roundtrip",
+      "ms": 60
+    },
+    {
+      "name": "heavy-drag-roundtrip",
+      "ms": 61
+    },
+    {
+      "name": "heavy-drag-roundtrip",
+      "ms": 21
+    },
+    {
+      "name": "heavy-zoom",
+      "ms": 336
+    },
+    {
+      "name": "heavy-zoom",
+      "ms": 194
+    },
+    {
+      "name": "heavy-zoom",
+      "ms": 198
+    }
+  ],
+  "knownMissing": [],
+  "summary": {
+    "hotSwitch": {
+      "n": 460,
+      "min": 18.3,
+      "p50": 31.2,
+      "p95": 31.9,
+      "max": 69.4
+    },
+    "coldBootMs": 100,
+    "coldTimelineFirstPaintMs": 117,
+    "failures": 0,
+    "passed": true
+  },
+  "finishedAt": "2026-11-09T04:35:39.431Z"
+}

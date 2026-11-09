@@ -1,34 +1,32 @@
 import { describe, expect, it } from "vitest";
-import type { LlmConfig, RawEmail, UserProfile } from "@mailcollect/shared";
 import type { LlmPort } from "../llm/port.js";
+import type { ClassificationGate, ClassifyPort } from "./types.js";
 import { processEmail, processEmails } from "./extract.js";
+import {
+  classifyWith,
+  extractionJson,
+  makeEmail,
+  makeLlmConfig,
+  makeProfile,
+  ScriptedLlm,
+} from "./__test-helpers__/fixtures.js";
 
-const config: LlmConfig = {
-  id: "test",
-  label: "test",
-  protocol: "openai-compatible",
-  baseUrl: "http://127.0.0.1:1/v1",
-  model: "test-model",
-  apiKeyRef: null,
-  temperature: 0,
-  maxTokens: 256,
-  timeoutMs: 1000,
-  isDefault: true,
+/**
+ * 批量入口独有的一条确定性后处理（C6）：
+ * 「同一天 + 同正文哈希」在分类完成之后按整批视野判定，不再是单封条件。
+ */
+
+const profile = makeProfile();
+
+const TODO_GATE: Partial<ClassificationGate> = {
+  enterTodo: true,
+  categoryIds: ["cat-personal"],
 };
 
-const profile: UserProfile = {
-  id: "u1",
-  displayName: "张三",
-  aliases: ["San Zhang"],
-  emails: ["me@corp.com"],
-  timezone: "Asia/Shanghai",
-  createdAt: "2026-11-01T00:00:00.000Z",
-  updatedAt: "2026-11-01T00:00:00.000Z",
-};
+const BODY = "系统通知：本周六 22:00 起停机维护两小时。";
 
-/** Fake port: always answers with "no tasks", so only the verdict path matters. */
 const fakeLlm = (): LlmPort => ({
-  config,
+  config: makeLlmConfig(),
   structured: async (schema) => {
     const payload = { items: [], noTasks: true };
     return {
@@ -42,64 +40,107 @@ const fakeLlm = (): LlmPort => ({
   ping: async () => ({ ok: true, latencyMs: 1, detail: "ok" }),
 });
 
-const email = (id: string, uid: string, body: string, subject: string): RawEmail => ({
-  id,
-  accountId: "acc1",
-  uid,
-  messageId: `<${id}@corp.com>`,
-  threadId: null,
-  fromName: "李雷",
-  fromEmail: "lilei@corp.com",
-  to: ["me@corp.com"],
-  cc: [],
-  subject,
-  sentAt: "2026-11-02T09:00:00+08:00",
-  bodyText: body,
-  hasAttachments: false,
-  headers: {},
-  createdAt: "2026-11-02T09:00:01+08:00",
-});
+function deps(llm: LlmPort, table: Record<string, Partial<ClassificationGate>>): {
+  llm: LlmPort;
+  profile: typeof profile;
+  classify: ClassifyPort;
+} {
+  return { llm, profile, classify: classifyWith(table) };
+}
 
-const BODY = "各位同事，明天上午十点在三楼会议室开季度沟通会，请准时参加，谢谢。";
+function email(id: string, body: string, sentAt: string): ReturnType<typeof makeEmail> {
+  return makeEmail({
+    id,
+    threadId: `thread-${id}`,
+    fromEmail: "notice@corp.example.com",
+    bodyText: body,
+    sentAt,
+  });
+}
 
-describe("processEmails — batch entry", () => {
-  it("fires the body-hash broadcast signal that the single-email path cannot see", async () => {
+describe("processEmails — 同日同文后处理", () => {
+  it("同一天两封正文相同（分类都准入）→ 后处理判群发，两封都只进提醒且不调用 LLM", async () => {
     const emails = [
-      email("e1", "1", BODY, "季度沟通会通知"),
-      email("e2", "2", BODY, "季度沟通会通知（转发）"),
+      email("dup-1", BODY, "2026-11-04T09:00:00+08:00"),
+      email("dup-2", BODY, "2026-11-04T15:00:00+08:00"),
     ];
+    const llm = new ScriptedLlm(() => extractionJson([]));
 
-    const batch = await processEmails({ llm: fakeLlm(), profile }, emails);
-    for (const item of emails) {
-      const verdict = batch.verdicts.get(item.id);
-      expect(verdict?.kind, `${item.id} 应判为群发`).toBe("broadcast");
-      expect(verdict?.signals).toContain("body-hash");
+    const outcome = await processEmails(
+      deps(llm, { "dup-1": TODO_GATE, "dup-2": TODO_GATE }),
+      emails,
+    );
+
+    expect(outcome.tasks).toHaveLength(0);
+    expect(outcome.reminders).toHaveLength(2);
+    for (const reminder of outcome.reminders) {
+      expect(reminder.signals).toContain("deterministic:same-day-body-hash");
     }
-
-    // Same message through the single-email path: no sibling in view, no signal.
-    const single = await processEmail({ llm: fakeLlm(), profile }, emails[0]!);
-    expect(single.verdict.signals).not.toContain("body-hash");
+    expect(outcome.skipped).toEqual([
+      { emailId: "dup-1", reason: "broadcast" },
+      { emailId: "dup-2", reason: "broadcast" },
+    ]);
+    expect(llm.requests).toHaveLength(0);
   });
 
-  it("does not fire body-hash for different bodies on the same day", async () => {
+  it("正文相同但不在同一天 → 不触发后处理，正常抽取", async () => {
     const emails = [
-      email("e1", "1", BODY, "季度沟通会通知"),
-      email("e2", "2", "张三，请把上周的报销单在今天下班前发我，谢谢。", "报销单"),
+      email("day-1", BODY, "2026-11-04T09:00:00+08:00"),
+      email("day-2", BODY, "2026-11-05T09:00:00+08:00"),
     ];
-    const batch = await processEmails({ llm: fakeLlm(), profile }, emails);
-    expect(batch.verdicts.get("e1")?.signals ?? []).not.toContain("body-hash");
-    expect(batch.verdicts.get("e2")?.signals ?? []).not.toContain("body-hash");
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await processEmails(
+      deps(llm, { "day-1": TODO_GATE, "day-2": TODO_GATE }),
+      emails,
+    );
+
+    expect(outcome.reminders).toHaveLength(0);
+    expect(outcome.skipped).toHaveLength(0);
+    expect(llm.requests).toHaveLength(2);
   });
 
-  it("returns one verdict per email and marks nothing as skipped for usable bodies", async () => {
+  it("同一天但正文不同 → 不触发后处理，正常抽取", async () => {
     const emails = [
-      email("e1", "1", BODY, "A"),
-      email("e2", "2", "另一封完全不同的正文，讲的是别的事情，也一样长一些以便通过清洗。", "B"),
-      email("e3", "3", "第三封正文，内容同样不同，用于确认批量入口覆盖整批邮件。", "C"),
+      email("diff-1", "维护通知甲。", "2026-11-04T09:00:00+08:00"),
+      email("diff-2", "维护通知乙。", "2026-11-04T15:00:00+08:00"),
     ];
-    const batch = await processEmails({ llm: fakeLlm(), profile }, emails);
-    expect(batch.verdicts.size).toBe(3);
-    expect(batch.skipped).toHaveLength(0);
-    expect(Array.isArray(batch.tasks)).toBe(true);
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await processEmails(
+      deps(llm, { "diff-1": TODO_GATE, "diff-2": TODO_GATE }),
+      emails,
+    );
+
+    expect(outcome.reminders).toHaveLength(0);
+    expect(outcome.skipped).toHaveLength(0);
+    expect(llm.requests).toHaveLength(2);
+  });
+
+  it("单封 processEmail 看不到同日同伴，不触发后处理（已知边界）", async () => {
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const result = await processEmail(deps(llm, { "single-dup": TODO_GATE }), email("single-dup", BODY, "2026-11-04T09:00:00+08:00"));
+
+    expect(result.reminders).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
+    expect(llm.requests).toHaveLength(1);
+  });
+
+  it("批量入口逐封返回闸门去向，且分类只发生一次/封", async () => {
+    const emails = [
+      email("e1", "第一封不同正文，讲事项甲。", "2026-11-04T09:00:00+08:00"),
+      email("e2", "第二封不同正文，讲事项乙。", "2026-11-04T10:00:00+08:00"),
+    ];
+    const seen: string[] = [];
+    const classify: ClassifyPort = (item) => {
+      seen.push(item.id);
+      return classifyWith({ "e1": TODO_GATE })(item);
+    };
+
+    const outcome = await processEmails({ llm: fakeLlm(), profile, classify }, emails);
+
+    expect(seen).toEqual(["e1", "e2"]);
+    expect(outcome.skipped).toEqual([{ emailId: "e2", reason: "uncategorized" }]);
   });
 });

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type {
-  BroadcastVerdict,
   RawEmail,
   Task,
   TaskKind,
@@ -9,16 +8,16 @@ import type {
   TaskTime,
   UserProfile,
 } from "@mailcollect/shared";
-import {
-  extractionResultSchema,
-  type ExtractionItem,
-} from "@mailcollect/shared";
+import { extractionResultSchema, type ExtractionItem } from "@mailcollect/shared";
 import type { LlmUsage } from "../llm/port.js";
-import { classifyBroadcast, hashBody } from "./broadcast.js";
-import { describeIdentityMentions, mentionsUser } from "./identity.js";
+import {
+  SAME_DAY_BODY_SIGNAL,
+  countSameDayDuplicateBodies,
+  isSameDayDuplicate,
+} from "./postprocess.js";
 import { cleanBody } from "./strip.js";
 import { resolveTaskTime } from "./time.js";
-import type { PipelineDeps } from "./types.js";
+import type { ClassificationGate, PipelineDeps } from "./types.js";
 
 /** 单个抽取结果 + 流水线附加的确定性字段。 */
 export interface ExtractedTask {
@@ -32,13 +31,21 @@ export interface ExtractedTask {
   evidenceQuote: string;
   confidence: number;
   time: TaskTime | null;
-  /** 代码层群发判定（先于 LLM 完成）。 */
-  broadcast: BroadcastVerdict;
   /** evidenceQuote 是否逐字出现在该邮件正文中。 */
   evidenceVerified: boolean;
-  /** 正文是否出现用户姓名/别名/邮箱（确定性匹配）。 */
-  identityMentioned: boolean;
 }
+
+/** 只进提醒卡片、不送 LLM 抽取的邮件（broadcast 分类或确定性同日同文后处理）。 */
+export interface BroadcastReminder {
+  emailId: string;
+  /** 命中的分类 id（仅确定性后处理命中时可能为空）。 */
+  categoryIds: readonly string[];
+  /** 审计信号：`rule:<规则 id>` 与 `deterministic:same-day-body-hash`。 */
+  signals: readonly string[];
+}
+
+/** 未进入 LLM 抽取的原因（C7 的三种准入去向 + 空邮件）。 */
+export type SkipReason = "broadcast" | "not_enter_todo" | "uncategorized" | "empty_message";
 
 export interface ExtractOptions {
   /** 每个线程每次送进模型的最大正文字符数，默认 12000。 */
@@ -49,20 +56,63 @@ export interface ExtractOptions {
 
 export interface ExtractOutcome {
   tasks: ExtractedTask[];
-  verdicts: Map<string, BroadcastVerdict>;
+  /** 群发分类（含确定性后处理）的邮件，只用于提醒卡片。 */
+  reminders: BroadcastReminder[];
+  /** 未进入 LLM 的邮件与原因，调用方据此给抽取队列打标记。 */
+  skipped: Array<{ emailId: string; reason: SkipReason }>;
   /** LLM 调用次数（每个线程分块一次）。 */
   calls: number;
   usage: LlmUsage | null;
   repaired: boolean;
   latencyMs: number;
-  skipped: Array<{ emailId: string; reason: string }>;
+}
+
+/** 服务端入口的返回形状（已附加 Task 的确定性字段）。 */
+export interface ProcessOutcome {
+  tasks: Task[];
+  reminders: BroadcastReminder[];
+  skipped: ExtractOutcome["skipped"];
 }
 
 const DEFAULT_MAX_CHARS = 12_000;
 
+type GateOutcome = "extract" | "broadcast" | "not_enter_todo" | "uncategorized";
+
+interface GateDecision {
+  outcome: GateOutcome;
+  /** 判为群发时的审计信号。 */
+  signals: string[];
+}
+
 /**
- * 批量抽取：按线程分组、线程内按字符预算切块，永不跨线程混在一个请求里。
- * 群发判定在调用 LLM 之前完成，并作为字段写进 prompt。
+ * 邮件级准入（C7）——R3/R4 删除后唯一的闸门：
+ * - 命中 `enterTodo=true` 且非 broadcast 的分类 → 进入 LLM 抽取；
+ * - 命中 broadcast 分类，或分类后被确定性后处理判为「同日同文」→ 只进提醒卡片；
+ * - 其它命中（分类未开 enterTodo）→ 不抽取；
+ * - 无命中（「未分类」）→ 不抽取、不标群发。
+ */
+function decideGate(
+  classification: ClassificationGate,
+  sameDayDuplicate: boolean,
+): GateDecision {
+  const ruleSignals = (classification.matches ?? []).map((match) => `rule:${match.ruleId}`);
+  if (classification.broadcast || sameDayDuplicate) {
+    return {
+      outcome: "broadcast",
+      signals: [...ruleSignals, ...(sameDayDuplicate ? [SAME_DAY_BODY_SIGNAL] : [])],
+    };
+  }
+  if (classification.enterTodo) return { outcome: "extract", signals: ruleSignals };
+  if (classification.uncategorized) return { outcome: "uncategorized", signals: [] };
+  return { outcome: "not_enter_todo", signals: ruleSignals };
+}
+
+/**
+ * 批量抽取：先按分类闸门筛邮件，再按线程分组、线程内按字符预算切块。
+ *
+ * 「同日同文」是整批视野的确定性后处理（C6：不作为单封条件），因此
+ * 只有批量入口能看到它；只持有单封邮件的调用方走 {@link processEmail} 时
+ * 永远没有这个信号（v1 以来的已知边界）。
  */
 export async function extractTasks(
   emails: readonly RawEmail[],
@@ -71,29 +121,48 @@ export async function extractTasks(
 ): Promise<ExtractOutcome> {
   const startedAt = Date.now();
   const maxChars = options.maxCharsPerChunk ?? DEFAULT_MAX_CHARS;
-  const verdicts = new Map<string, BroadcastVerdict>();
-  const skipped: Array<{ emailId: string; reason: string }> = [];
-  const threads: RenderedEmail[][] = [];
-  // 「同一天 + 同正文哈希」需要整批视野；单封调用时这份表为空。
-  const duplicateBodies = countSameDayDuplicateBodies(emails, deps.profile);
+  const skipped: Array<{ emailId: string; reason: SkipReason }> = [];
+  const reminders: BroadcastReminder[] = [];
+  const admitted: RawEmail[] = [];
+  const duplicateBodies = countSameDayDuplicateBodies(emails, deps.profile.timezone);
 
-  for (const thread of groupByThread(emails)) {
+  // 1) 分类闸门：每封邮件一次（语义叶子由调用方的分类端口内部求值）。
+  for (const email of emails) {
+    const classification = await deps.classify(email);
+    const decision = decideGate(
+      classification,
+      isSameDayDuplicate(duplicateBodies.get(email.id)),
+    );
+    if (decision.outcome === "extract") {
+      admitted.push(email);
+      continue;
+    }
+    if (decision.outcome === "broadcast") {
+      reminders.push({
+        emailId: email.id,
+        categoryIds: classification.categoryIds,
+        signals: decision.signals,
+      });
+    }
+    skipped.push({ emailId: email.id, reason: decision.outcome });
+  }
+
+  // 2) 只渲染准入邮件；空邮件在闸门之后单独记 empty_message。
+  const threads: RenderedEmail[][] = [];
+  for (const thread of groupByThread(admitted)) {
     const rendered: RenderedEmail[] = [];
     for (const email of thread) {
-      const verdict = classifyBroadcast(email, deps.profile, {
-        duplicateBodyCount: duplicateBodies.get(email.id) ?? 0,
-      });
-      verdicts.set(email.id, verdict);
       const body = cleanBody(email.bodyText ?? "");
       if (body.trim() === "" && email.subject.trim() === "") {
         skipped.push({ emailId: email.id, reason: "empty_message" });
         continue;
       }
-      rendered.push(renderEmail(email, deps.profile, verdict, body, maxChars));
+      rendered.push(renderEmail(email, body, maxChars));
     }
     if (rendered.length > 0) threads.push(rendered);
   }
 
+  // 3) LLM 抽取（每个线程分块一次，绝不跨线程混请求）。
   const tasks: ExtractedTask[] = [];
   const seen = new Set<string>();
   let calls = 0;
@@ -132,55 +201,43 @@ export async function extractTasks(
 
   return {
     tasks,
-    verdicts,
+    reminders,
+    skipped,
     calls,
     usage,
     repaired,
     latencyMs: Date.now() - startedAt,
-    skipped,
   };
 }
 
 /**
- * 服务端单封入口（集成契约）。返回完整 Task；status 按 R3/R4 映射：
- * owner=me 且代码层判定 personal → confirmed，其余（含 me+群发）→ candidate。
- * 群发判定在 LLM 之前就已确定，无需再次调用模型。
+ * 服务端单封入口（集成契约）。闸门语义与批量入口一致，但看不见「同日同文」的
+ * 同伴邮件；持有抽取队列的调用方应使用 {@link processEmails}。
  */
 export async function processEmail(
   deps: PipelineDeps,
   email: RawEmail,
-): Promise<{ verdict: BroadcastVerdict; tasks: Task[] }> {
-  const verdict = classifyBroadcast(email, deps.profile);
-  const outcome = await extractTasks([email], deps);
-  const now = new Date().toISOString();
-  return {
-    verdict,
-    tasks: outcome.tasks.map((task) => toTask(task, deps.profile, now)),
-  };
+): Promise<ProcessOutcome> {
+  return toProcessOutcome(await extractTasks([email], deps), deps.profile);
 }
 
 /**
  * Batch entry point — same per-email semantics as {@link processEmail}, but the
- * whole set reaches `extractTasks` at once.
- *
- * This is not a convenience wrapper: it is the ONLY way the "same body, same
- * day" broadcast signal can fire. `processEmail` sees one message, so its
- * `duplicateBodyCount` is always 0 and R4's body-hash rule never triggers in
- * production. Callers that own a queue must use this.
+ * whole set reaches `extractTasks` at once, which is the ONLY way the
+ * deterministic "same body, same day" post-processing can see its siblings.
  */
 export async function processEmails(
   deps: PipelineDeps,
   emails: readonly RawEmail[],
-): Promise<{
-  verdicts: Map<string, BroadcastVerdict>;
-  tasks: Task[];
-  skipped: ExtractOutcome["skipped"];
-}> {
-  const outcome = await extractTasks(emails, deps);
+): Promise<ProcessOutcome> {
+  return toProcessOutcome(await extractTasks(emails, deps), deps.profile);
+}
+
+function toProcessOutcome(outcome: ExtractOutcome, profile: UserProfile): ProcessOutcome {
   const now = new Date().toISOString();
   return {
-    verdicts: outcome.verdicts,
-    tasks: outcome.tasks.map((task) => toTask(task, deps.profile, now)),
+    tasks: outcome.tasks.map((task) => toTask(task, profile, now)),
+    reminders: outcome.reminders,
     skipped: outcome.skipped,
   };
 }
@@ -208,57 +265,13 @@ function compareSentAt(left: RawEmail, right: RawEmail): number {
   return safeLeft - safeRight || left.id.localeCompare(right.id);
 }
 
-/**
- * 同一用户时区「同一天」内、正文哈希相同的其它邮件数量（0 = 唯一）。
- * 这是 R4 的「去重正文哈希」信号：同日多条一模一样 → 自动通知/群发。
- *
- * 批量入口（extractTasks）内部会用它；逐封调用 processEmail 的服务端
- * 也可以先对整批邮件调一次，把结果通过
- * `classifyBroadcast(email, profile, { duplicateBodyCount })` 传进判定。
- */
-export function countSameDayDuplicateBodies(
-  emails: readonly RawEmail[],
-  profile: UserProfile,
-): Map<string, number> {
-  const dayFormatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: profile.timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const buckets = new Map<string, RawEmail[]>();
-  for (const email of emails) {
-    const sentAt = new Date(email.sentAt);
-    if (Number.isNaN(sentAt.getTime())) continue;
-    // 先剥引文/签名再哈希：同一封转发件不该因为引用历史不同而漏判。
-    const hash = hashBody({ text: cleanBody(email.bodyText ?? "") });
-    if (hash === null) continue;
-    const key = `${dayFormatter.format(sentAt)}|${hash}`;
-    const bucket = buckets.get(key);
-    if (bucket) bucket.push(email);
-    else buckets.set(key, [email]);
-  }
-  const counts = new Map<string, number>();
-  for (const bucket of buckets.values()) {
-    for (const email of bucket) counts.set(email.id, bucket.length - 1);
-  }
-  return counts;
-}
-
 interface RenderedEmail {
   email: RawEmail;
   body: string;
   text: string;
-  broadcast: BroadcastVerdict;
 }
 
-function renderEmail(
-  email: RawEmail,
-  profile: UserProfile,
-  broadcast: BroadcastVerdict,
-  body: string,
-  maxChars: number,
-): RenderedEmail {
+function renderEmail(email: RawEmail, body: string, maxChars: number): RenderedEmail {
   const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}\n…(正文已截断)` : body;
   const sender = email.fromName?.trim()
     ? `${email.fromName.trim()} <${email.fromEmail}>`
@@ -271,14 +284,10 @@ function renderEmail(
     `抄送: ${email.cc.join(", ") || "(无)"}`,
     `日期: ${email.sentAt}`,
     `主题: ${email.subject || "(无主题)"}`,
-    `群发判定（代码层结论，不要重新判断）: ${broadcast.kind}；依据: ${
-      broadcast.signals.join(", ") || "无强信号"
-    }`,
-    describeIdentityMentions(clipped, profile),
     "正文:",
     clipped || "(正文为空)",
   ].join("\n");
-  return { email, body: clipped, text, broadcast };
+  return { email, body: clipped, text };
 }
 
 function chunkThread(rendered: readonly RenderedEmail[], maxChars: number): RenderedEmail[][] {
@@ -310,16 +319,13 @@ const SYSTEM_PROMPT = `你是「MailCollect」的邮件待办抽取引擎。唯�
    - other：明确要求别人做，ownerName 必须填。
    - unassigned：没有指定责任人。
    - everyone：面向所有收件人的通用通知/要求，没有点名个人。
-2. 群发判定由代码在本请求之前完成，作为「群发判定」字段给你，不要重新判断：
-   - broadcast（列表/自动通知/广告）：只有正文明确点名用户本人或直接要求「你」做事时才给 me，否则给 everyone 或 unassigned。
-   - personal / uncertain：按正文判断。
-3. 时间：只把原文里的时间短语抄进 timePhrase，绝对不要换算日期、不要补全、不要猜。
+2. 时间：只把原文里的时间短语抄进 timePhrase，绝对不要换算日期、不要补全、不要猜。
    - kind=deadline：有硬截止（如「周五前提交」）。
    - kind=window：有起止时段（如「下周一至周三」）。
    - 没有时间信息：kind=action，timePhrase=null。
-4. evidenceQuote 必须是正文里逐字出现的一句话，不能改写、不能拼接，用于审计。
-5. 没有可执行事项时返回 {"items":[],"noTasks":true}。
-6. 寒暄、签名、引用历史都不算待办。`;
+3. evidenceQuote 必须是正文里逐字出现的一句话，不能改写、不能拼接，用于审计。
+4. 没有可执行事项时返回 {"items":[],"noTasks":true}。
+5. 寒暄、签名、引用历史都不算待办。`;
 
 function buildUserPrompt(chunk: readonly RenderedEmail[], profile: UserProfile): string {
   const header = [
@@ -358,9 +364,7 @@ function toExtractedTask(
     evidenceQuote: item.evidenceQuote.trim(),
     confidence: item.confidence,
     time,
-    broadcast: located.broadcast,
     evidenceVerified: located.verified,
-    identityMentioned: mentionsUser(located.body, deps.profile),
   };
 }
 
@@ -369,7 +373,7 @@ function toExtractedTask(
  * 有区间 → window；有截止 → deadline；两者都没有 → action。
  */
 function deriveKind(time: TaskTime | null): TaskKind {
-  if (time?.windowStart && time.windowEnd) return "window";
+  if (time?.windowStart && time?.windowEnd) return "window";
   if (time?.dueAt) return "deadline";
   return "action";
 }
@@ -377,7 +381,6 @@ function deriveKind(time: TaskTime | null): TaskKind {
 interface LocatedEvidence {
   email: RawEmail;
   body: string;
-  broadcast: BroadcastVerdict;
   verified: boolean;
 }
 
@@ -409,12 +412,7 @@ function locateEvidence(
 }
 
 function toLocated(candidate: RenderedEmail): LocatedEvidence {
-  return {
-    email: candidate.email,
-    body: candidate.body,
-    broadcast: candidate.broadcast,
-    verified: false,
-  };
+  return { email: candidate.email, body: candidate.body, verified: false };
 }
 
 function normalizeForMatch(text: string): string {
@@ -434,8 +432,9 @@ function toTask(extracted: ExtractedTask, profile: UserProfile, now: string): Ta
     owner: extracted.owner,
     ownerName: extracted.ownerName,
     kind: extracted.kind,
-    status: deriveStatus(extracted),
-    origin: extracted.broadcast.kind,
+    status: deriveStatus(extracted.owner),
+    // 只有非群发邮件能通过分类闸门进入抽取，任务来源因此恒为 personal。
+    origin: "personal",
     confidence: extracted.confidence,
     evidenceQuote: extracted.evidenceQuote,
     sourceEmailId: extracted.sourceEmailId,
@@ -447,12 +446,10 @@ function toTask(extracted: ExtractedTask, profile: UserProfile, now: string): Ta
 }
 
 /**
- * R3/R4 的 owner → status 映射：
- * 只有「点名给我 + 代码层确认是个人邮件」才自动进待办；
- * 群发即使点名到我，也要用户自己点「加入待办」。
+ * 任务级语义（C7）：owner 只用于展示/过滤与状态映射，不再参与邮件级准入。
+ * 闸门已保证进入抽取的邮件非群发，因此 owner=me → confirmed，其余 → candidate，
+ * 与 v1 的可观察行为一致。
  */
-function deriveStatus(extracted: ExtractedTask): TaskStatus {
-  return extracted.owner === "me" && extracted.broadcast.kind === "personal"
-    ? "confirmed"
-    : "candidate";
+function deriveStatus(owner: TaskOwner): TaskStatus {
+  return owner === "me" ? "confirmed" : "candidate";
 }

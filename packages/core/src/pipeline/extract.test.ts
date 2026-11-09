@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 import type { LlmPort, LlmResult, StructuredRequest } from "../llm/port.js";
 import { LlmError } from "../llm/port.js";
+import type { ClassificationGate } from "./types.js";
+import { extractTasks, processEmail, type ExtractedTask } from "./extract.js";
 import {
-  extractTasks,
-  processEmail,
-  type ExtractedTask,
-} from "./extract.js";
-import {
+  classification,
+  classifyWith,
   extractionItem,
   extractionJson,
   makeEmail,
@@ -17,7 +16,23 @@ import {
 } from "./__test-helpers__/fixtures.js";
 
 const profile = makeProfile();
-const deps = (llm: LlmPort) => ({ llm, profile });
+
+const TODO_GATE: Partial<ClassificationGate> = {
+  enterTodo: true,
+  categoryIds: ["cat-personal"],
+};
+const BROADCAST_GATE: Partial<ClassificationGate> = {
+  broadcast: true,
+  categoryIds: ["cat-broadcast"],
+};
+
+function deps(llm: LlmPort, table: Record<string, Partial<ClassificationGate>> = {}) {
+  return { llm, profile, classify: classifyWith(table) };
+}
+
+function allTodo(...ids: string[]): Record<string, Partial<ClassificationGate>> {
+  return Object.fromEntries(ids.map((id) => [id, TODO_GATE]));
+}
 
 function onlyTask(tasks: readonly ExtractedTask[]): ExtractedTask {
   expect(tasks).toHaveLength(1);
@@ -26,13 +41,13 @@ function onlyTask(tasks: readonly ExtractedTask[]): ExtractedTask {
   return task;
 }
 
-describe("端到端样本 1：点名任务", () => {
-  it("owner=me、broadcast=personal、证据逐字命中", async () => {
+describe("分类闸门（C7）：邮件级准入", () => {
+  it("enterTodo 且非 broadcast → 进入抽取；时间确定性解析，prompt 无 R3/R4 残留", async () => {
     const email = makeEmail({
       id: "mail-personal",
       threadId: "thread-personal",
       subject: "Q3 报告",
-      bodyText: "张三，请周五下班前把 Q3 报告发给我。\n\n谢谢\n-- \n李四",
+      bodyText: "张三，请周五下班前把 Q3 报告发给我。",
     });
     const llm = new ScriptedLlm(() =>
       extractionJson([
@@ -47,206 +62,110 @@ describe("端到端样本 1：点名任务", () => {
       ]),
     );
 
-    const outcome = await extractTasks([email], deps(llm));
+    const outcome = await extractTasks([email], deps(llm, { "mail-personal": TODO_GATE }));
     const task = onlyTask(outcome.tasks);
 
+    expect(outcome.calls).toBe(1);
+    expect(outcome.reminders).toHaveLength(0);
+    expect(outcome.skipped).toHaveLength(0);
     expect(task.owner).toBe("me");
-    expect(task.broadcast.kind).toBe("personal");
     expect(task.kind).toBe("deadline");
     expect(task.time?.dueAt).toBe("2026-11-06T10:00:00.000Z");
     expect(task.evidenceVerified).toBe(true);
-    expect(task.identityMentioned).toBe(true);
     expect(task.sourceEmailId).toBe("mail-personal");
-    expect(outcome.verdicts.get("mail-personal")?.kind).toBe("personal");
-    // 群发结论在调用 LLM 之前完成，并作为字段传给模型。
-    expect(llm.requests[0]?.user).toContain("群发判定（代码层结论，不要重新判断）: personal");
+    // 已删除的 R3 姓名匹配 / R4 群发判定不得再出现在模型上下文里。
+    expect(llm.requests[0]?.user).not.toContain("群发判定");
+    expect(llm.requests[0]?.user).not.toContain("确定性匹配");
   });
-});
 
-describe("端到端样本 2：群发通知", () => {
-  it("代码层判 broadcast（List-Id/List-Unsubscribe），模型给 everyone", async () => {
+  it("broadcast 分类 → 不调用 LLM，只进提醒卡片并记 rule 信号", async () => {
     const email = makeEmail({
       id: "mail-list",
-      threadId: "thread-list",
-      fromName: "研发周报",
-      fromEmail: "digest@lists.example.com",
-      to: ["devs@lists.example.com"],
-      subject: "本周系统维护通知",
-      bodyText: "全体成员：本周五 22:00 起系统维护，预计两小时。",
-      headers: {
-        "List-Id": "<devs.lists.example.com>",
-        "List-Unsubscribe": "<mailto:unsubscribe@lists.example.com>",
+      headers: { "List-Id": "<devs.lists.example.com>" },
+      bodyText: "全体成员：本周五 22:00 起系统维护。",
+    });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([email], deps(llm, {
+      "mail-list": {
+        ...BROADCAST_GATE,
+        matches: [
+          { ruleId: "seed-rule-broadcast", ruleName: "群发/通知", categoryId: "cat-broadcast" },
+        ],
       },
-    });
-    const llm = new ScriptedLlm(() =>
-      extractionJson([
-        extractionItem({
-          title: "关注本周五系统维护窗口",
-          owner: "everyone",
-          ownerName: null,
-          kind: "deadline",
-          timePhrase: "本周五 22:00",
-          evidenceQuote: "全体成员：本周五 22:00 起系统维护，预计两小时。",
-          confidence: 0.75,
-        }),
-      ]),
-    );
+    }));
 
-    const outcome = await extractTasks([email], deps(llm));
-    const task = onlyTask(outcome.tasks);
-
-    expect(task.broadcast.kind).toBe("broadcast");
-    expect(task.broadcast.signals).toEqual(
-      expect.arrayContaining(["header:list-id", "header:list-unsubscribe"]),
-    );
-    expect(task.owner).toBe("everyone");
-    expect(task.time?.dueAt).toBe("2026-11-06T14:00:00.000Z"); // 22:00 +08:00
-    expect(llm.requests[0]?.user).toContain("群发判定（代码层结论，不要重新判断）: broadcast");
-  });
-});
-
-describe("端到端样本 3：纯广告", () => {
-  it("无强信号叠加也不判 personal；noTasks 是「没有待办」而不是解析失败", async () => {
-    const email = makeEmail({
-      id: "mail-ad",
-      threadId: "thread-ad",
-      fromName: "好物商城",
-      fromEmail: "noreply@shop.example.com",
-      to: Array.from({ length: 12 }, (_, index) => `user${index}@example.com`),
-      cc: [],
-      subject: "双十一大促，全场五折",
-      bodyText: "全场五折，仅此三天！退订请点链接。",
-      headers: { Precedence: "bulk" },
-    });
-    const llm = new ScriptedLlm(() => extractionJson([], true));
-
-    const outcome = await extractTasks([email], deps(llm));
-
+    expect(outcome.calls).toBe(0);
     expect(outcome.tasks).toHaveLength(0);
-    expect(outcome.calls).toBe(1);
-    const verdict = outcome.verdicts.get("mail-ad");
-    expect(verdict?.kind).toBe("broadcast");
-    expect(verdict?.signals).toEqual(
-      expect.arrayContaining([
-        "header:precedence",
-        "recipients:>=10",
-        "from:no-reply",
-        "user:not-in-to",
-      ]),
-    );
-    expect(llm.requests[0]?.user).toContain(": broadcast");
+    expect(outcome.reminders).toEqual([
+      {
+        emailId: "mail-list",
+        categoryIds: ["cat-broadcast"],
+        signals: ["rule:seed-rule-broadcast"],
+      },
+    ]);
+    expect(outcome.skipped).toEqual([{ emailId: "mail-list", reason: "broadcast" }]);
   });
-});
 
-describe("端到端样本 4：含硬截止", () => {
-  it("timePhrase 交给 chrono 解析成 dueAt，模型不做日期运算", async () => {
-    const email = makeEmail({
-      id: "mail-deadline",
-      threadId: "thread-deadline",
-      subject: "报销单提交",
-      bodyText: "请在 11月10日 18:00 前提交报销单。",
-    });
-    const llm = new ScriptedLlm(() =>
-      extractionJson([
-        extractionItem({
-          title: "提交报销单",
-          owner: "me",
-          kind: "deadline",
-          timePhrase: "11月10日 18:00",
-          evidenceQuote: "请在 11月10日 18:00 前提交报销单。",
-          confidence: 0.92,
-        }),
-      ]),
-    );
+  it("同时命中 enterTodo 与 broadcast 时以 broadcast 为准（不抽取）", async () => {
+    const email = makeEmail({ id: "mail-both" });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([email], deps(llm, {
+      "mail-both": { enterTodo: true, broadcast: true, categoryIds: ["cat-both"] },
+    }));
+
+    expect(outcome.calls).toBe(0);
+    expect(outcome.reminders.map((item) => item.emailId)).toEqual(["mail-both"]);
+    expect(outcome.skipped).toEqual([{ emailId: "mail-both", reason: "broadcast" }]);
+  });
+
+  it("命中分类但 enterTodo=false → 不抽取、不提醒", async () => {
+    const email = makeEmail({ id: "mail-info" });
+    const llm = new ScriptedLlm(() => extractionJson([]));
+
+    const outcome = await extractTasks([email], deps(llm, {
+      "mail-info": { enterTodo: false, broadcast: false, categoryIds: ["cat-info"] },
+    }));
+
+    expect(outcome.calls).toBe(0);
+    expect(outcome.reminders).toHaveLength(0);
+    expect(outcome.skipped).toEqual([{ emailId: "mail-info", reason: "not_enter_todo" }]);
+  });
+
+  it("无命中（未分类）→ 不抽取、不标群发", async () => {
+    const email = makeEmail({ id: "mail-uncategorized" });
+    const llm = new ScriptedLlm(() => extractionJson([]));
 
     const outcome = await extractTasks([email], deps(llm));
-    const task = onlyTask(outcome.tasks);
 
-    expect(task.owner).toBe("me");
-    expect(task.broadcast.kind).toBe("personal");
-    expect(task.kind).toBe("deadline");
-    expect(task.time).toMatchObject({
-      phrase: "11月10日 18:00",
-      dueAt: "2026-11-10T10:00:00.000Z",
-      windowStart: null,
-      windowEnd: null,
-      timezone: "Asia/Shanghai",
-      confidence: 0.9,
-    });
-    expect(llm.requests[0]?.user).toContain("群发判定（代码层结论，不要重新判断）: personal");
+    expect(outcome.calls).toBe(0);
+    expect(outcome.tasks).toHaveLength(0);
+    expect(outcome.reminders).toHaveLength(0);
+    expect(outcome.skipped).toEqual([{ emailId: "mail-uncategorized", reason: "uncategorized" }]);
+  });
+
+  it("每封邮件只分类一次，并且分类发生在 LLM 抽取之前", async () => {
+    const emails = [
+      makeEmail({ id: "mail-a", threadId: "thread-a" }),
+      makeEmail({ id: "mail-b", threadId: "thread-b" }),
+    ];
+    const llm = new ScriptedLlm(() => extractionJson([]));
+    const seen: string[] = [];
+    const classify = (email: { id: string }): ClassificationGate => {
+      seen.push(email.id);
+      return classification(email.id, { uncategorized: true });
+    };
+
+    await extractTasks(emails, { llm, profile, classify });
+
+    expect(seen).toEqual(["mail-a", "mail-b"]);
+    expect(llm.requests).toHaveLength(0);
   });
 });
 
-describe("端到端样本 5：含时段", () => {
-  it("「下周一至周三」解析成 window 区间", async () => {
-    const email = makeEmail({
-      id: "mail-window",
-      threadId: "thread-window",
-      subject: "值班安排",
-      bodyText: "张三，下周一至周三由你负责值班。",
-    });
-    const llm = new ScriptedLlm(() =>
-      extractionJson([
-        extractionItem({
-          title: "负责值班",
-          owner: "me",
-          kind: "window",
-          timePhrase: "下周一至周三",
-          evidenceQuote: "张三，下周一至周三由你负责值班。",
-          confidence: 0.8,
-        }),
-      ]),
-    );
-
-    const outcome = await extractTasks([email], deps(llm));
-    const task = onlyTask(outcome.tasks);
-
-    expect(task.owner).toBe("me");
-    expect(task.broadcast.kind).toBe("personal");
-    expect(task.kind).toBe("window");
-    expect(task.time?.windowStart).toBe("2026-11-08T16:00:00.000Z");
-    expect(task.time?.windowEnd).toBe("2026-11-11T15:59:59.999Z");
-    expect(task.time?.dueAt).toBeNull();
-  });
-});
-
-describe("线程级切块", () => {
-  it("不同线程分两次请求，prompt 不互相污染", async () => {
-    const emailA = makeEmail({
-      id: "mail-a",
-      threadId: "thread-a",
-      subject: "报告A",
-      bodyText: "请处理 A 事项。",
-    });
-    const emailB = makeEmail({
-      id: "mail-b",
-      threadId: "thread-b",
-      subject: "报告B",
-      bodyText: "请处理 B 事项。",
-    });
-    const llm = new ScriptedLlm((request) => {
-      const isA = request.user.includes("报告A");
-      return extractionJson([
-        extractionItem({
-          title: isA ? "处理 A" : "处理 B",
-          owner: "me",
-          evidenceQuote: isA ? "请处理 A 事项。" : "请处理 B 事项。",
-        }),
-      ]);
-    });
-
-    const outcome = await extractTasks([emailA, emailB], deps(llm));
-
-    expect(outcome.calls).toBe(2);
-    expect(outcome.tasks).toHaveLength(2);
-    const [first, second] = llm.requests;
-    expect(first?.user).toContain("报告A");
-    expect(first?.user).not.toContain("报告B");
-    expect(second?.user).toContain("报告B");
-    expect(second?.user).not.toContain("报告A");
-  });
-
-  it("同一线程的多封邮件合在一次请求里", async () => {
+describe("线程与切块：只渲染准入邮件", () => {
+  it("同一线程的多封准入邮件合在一次请求里，群发兄弟不出现在 prompt", async () => {
     const first = makeEmail({
       id: "mail-t1",
       threadId: "shared-thread",
@@ -261,44 +180,58 @@ describe("线程级切块", () => {
       sentAt: "2026-11-04T10:00:00+08:00",
       bodyText: "请处理事项二。",
     });
+    const broadcast = makeEmail({
+      id: "mail-t3-broadcast",
+      threadId: "shared-thread",
+      subject: "线程里的群发通知",
+      sentAt: "2026-11-04T11:00:00+08:00",
+      bodyText: "全体通知：周五维护。",
+    });
     const llm = new ScriptedLlm(() => extractionJson([]));
 
-    const outcome = await extractTasks([first, second], deps(llm));
+    const outcome = await extractTasks(
+      [first, second, broadcast],
+      deps(llm, { ...allTodo("mail-t1", "mail-t2"), "mail-t3-broadcast": BROADCAST_GATE }),
+    );
 
     expect(outcome.calls).toBe(1);
     expect(llm.requests[0]?.user).toContain("事项一");
     expect(llm.requests[0]?.user).toContain("事项二");
+    expect(llm.requests[0]?.user).not.toContain("mail-t3-broadcast");
+    expect(outcome.reminders.map((item) => item.emailId)).toEqual(["mail-t3-broadcast"]);
   });
 
   it("超过字符预算时线程内切块，且切块后仍不跨线程", async () => {
     const longBody = "这里是一段很长的正文内容。".repeat(20);
+    // 每封正文必须不同：同日同文会被分类后的确定性后处理判成群发（本测试只关心切块）。
     const threadA = [0, 1].map((index) =>
       makeEmail({
         id: `a-${index}`,
         threadId: "thread-A",
         subject: `A 线程第 ${index} 封`,
         sentAt: ["2026-11-04T09:00:00+08:00", "2026-11-04T10:00:00+08:00"][index],
-        bodyText: longBody,
+        bodyText: `${longBody}线程 A 第 ${index} 段。`,
       }),
     );
     const threadB = makeEmail({
       id: "b-0",
       threadId: "thread-B",
       subject: "B 线程唯一一封",
-      bodyText: longBody,
+      bodyText: `${longBody}线程 B 唯一的一段。`,
     });
     const llm = new ScriptedLlm(() => extractionJson([]));
 
-    const outcome = await extractTasks([...threadA, threadB], deps(llm), {
-      maxCharsPerChunk: 300,
-    });
+    const outcome = await extractTasks(
+      [...threadA, threadB],
+      deps(llm, allTodo("a-0", "a-1", "b-0")),
+      { maxCharsPerChunk: 300 },
+    );
 
     expect(outcome.calls).toBeGreaterThanOrEqual(3);
     for (const request of llm.requests) {
       const hasA = request.user.includes("线程: thread-A");
       const hasB = request.user.includes("线程: thread-B");
       expect(hasA !== hasB).toBe(true);
-      // 同一请求里只能出现一个线程的邮件。
       if (hasA) expect(request.user).not.toContain("B 线程唯一一封");
       if (hasB) expect(request.user).not.toContain("A 线程第");
     }
@@ -318,7 +251,7 @@ describe("证据与失败路径", () => {
       ]),
     );
 
-    const outcome = await extractTasks([email], deps(llm));
+    const outcome = await extractTasks([email], deps(llm, { "mail-evidence": TODO_GATE }));
 
     const task = onlyTask(outcome.tasks);
     expect(task.evidenceVerified).toBe(false);
@@ -326,7 +259,7 @@ describe("证据与失败路径", () => {
   });
 
   it("空白响应抛 blank_response，绝不吞成空任务列表", async () => {
-    const email = makeEmail();
+    const email = makeEmail({ id: "mail-blank" });
     const llm: LlmPort = {
       config: makeLlmConfig(),
       async structured<T>(
@@ -340,17 +273,17 @@ describe("证据与失败路径", () => {
       },
     };
 
-    await expect(extractTasks([email], deps(llm))).rejects.toMatchObject({
+    await expect(extractTasks([email], deps(llm, { "mail-blank": TODO_GATE }))).rejects.toMatchObject({
       code: "blank_response",
       retryable: true,
     });
   });
 
-  it("空邮件（无正文无主题）被跳过且不调用 LLM", async () => {
+  it("准入后正文与主题都为空 → 跳过且不调用 LLM", async () => {
     const email = makeEmail({ id: "mail-empty", bodyText: "", subject: "" });
     const llm = new ScriptedLlm(() => extractionJson([]));
 
-    const outcome = await extractTasks([email], deps(llm));
+    const outcome = await extractTasks([email], deps(llm, { "mail-empty": TODO_GATE }));
 
     expect(outcome.calls).toBe(0);
     expect(outcome.tasks).toHaveLength(0);
@@ -359,7 +292,7 @@ describe("证据与失败路径", () => {
 });
 
 describe("processEmail（服务端集成契约）", () => {
-  it("返回 verdict 与字段齐全的 Task，owner != me 也保留", async () => {
+  it("返回字段齐全的 Task；owner != me 只影响任务状态，不影响准入", async () => {
     const email = makeEmail({
       id: "mail-process",
       threadId: "thread-process",
@@ -379,13 +312,11 @@ describe("processEmail（服务端集成契约）", () => {
       ]),
     );
 
-    const result = await processEmail(deps(llm), email);
+    const result = await processEmail(deps(llm, { "mail-process": TODO_GATE }), email);
 
-    expect(result.verdict.kind).toBe("personal");
     expect(result.tasks).toHaveLength(1);
     const task = result.tasks[0];
     if (!task) throw new Error("expected one task");
-
     expect(task.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(task.userId).toBe(profile.id);
     expect(task.title).toBe("提交采购单");
@@ -402,162 +333,33 @@ describe("processEmail（服务端集成契约）", () => {
     expect(Number.isNaN(Date.parse(task.createdAt))).toBe(false);
   });
 
-  it("群发邮件返回 origin=broadcast 的候选任务", async () => {
+  it("群发分类：无任务、只返回提醒卡片", async () => {
     const email = makeEmail({
       id: "mail-broadcast-process",
-      to: ["devs@lists.example.com"],
       headers: { "List-Id": "<devs.lists.example.com>" },
       bodyText: "全体成员：本周五系统维护。",
     });
-    const llm = new ScriptedLlm(() =>
-      extractionJson([
-        extractionItem({
-          title: "关注系统维护",
-          owner: "everyone",
-          evidenceQuote: "全体成员：本周五系统维护。",
-        }),
-      ]),
-    );
+    const llm = new ScriptedLlm(() => extractionJson([]));
 
-    const result = await processEmail(deps(llm), email);
+    const result = await processEmail(deps(llm, { "mail-broadcast-process": BROADCAST_GATE }), email);
 
-    expect(result.verdict.kind).toBe("broadcast");
-    expect(result.tasks[0]?.origin).toBe("broadcast");
-    expect(result.tasks[0]?.owner).toBe("everyone");
+    expect(result.tasks).toHaveLength(0);
+    expect(result.reminders.map((item) => item.emailId)).toEqual(["mail-broadcast-process"]);
+    expect(result.skipped).toEqual([{ emailId: "mail-broadcast-process", reason: "broadcast" }]);
   });
 
-  it("点名任务（owner=me 且 personal）→ status=confirmed", async () => {
+  it("点名任务（owner=me 且非群发）→ status=confirmed", async () => {
     const email = makeEmail({ id: "mail-confirm", bodyText: "张三，请提交周报。" });
     const llm = new ScriptedLlm(() =>
       extractionJson([
-        extractionItem({
-          title: "提交周报",
-          owner: "me",
-          evidenceQuote: "张三，请提交周报。",
-        }),
+        extractionItem({ title: "提交周报", owner: "me", evidenceQuote: "张三，请提交周报。" }),
       ]),
     );
 
-    const result = await processEmail(deps(llm), email);
+    const result = await processEmail(deps(llm, { "mail-confirm": TODO_GATE }), email);
 
-    expect(result.verdict.kind).toBe("personal");
     expect(result.tasks[0]?.owner).toBe("me");
     expect(result.tasks[0]?.status).toBe("confirmed");
-  });
-
-  it("群发里明确点名我（owner=me）仍是 candidate，交给用户决定", async () => {
-    const email = makeEmail({
-      id: "mail-broadcast-me",
-      to: ["devs@lists.example.com"],
-      headers: { "List-Id": "<devs.lists.example.com>" },
-      bodyText: "张三，请在周五前更新值班表。",
-    });
-    const llm = new ScriptedLlm(() =>
-      extractionJson([
-        extractionItem({
-          title: "更新值班表",
-          owner: "me",
-          evidenceQuote: "张三，请在周五前更新值班表。",
-        }),
-      ]),
-    );
-
-    const result = await processEmail(deps(llm), email);
-
-    expect(result.verdict.kind).toBe("broadcast");
-    expect(result.tasks[0]?.owner).toBe("me");
-    expect(result.tasks[0]?.status).toBe("candidate");
-  });
-});
-
-describe("同日重复正文（body-hash）", () => {
-  const SAME_BODY = "系统维护通知：本周五 22:00 起停机两小时。";
-
-  it("同一天两封正文相同 → 判定降级为 broadcast 并记 body-hash", async () => {
-    const first = makeEmail({
-      id: "dup-1",
-      threadId: "thread-dup-1",
-      fromEmail: "notice@corp.cn",
-      bodyText: SAME_BODY,
-      sentAt: "2026-11-04T09:00:00+08:00",
-    });
-    const second = makeEmail({
-      id: "dup-2",
-      threadId: "thread-dup-2",
-      fromEmail: "notice@corp.cn",
-      bodyText: SAME_BODY,
-      sentAt: "2026-11-04T15:00:00+08:00",
-    });
-    const llm = new ScriptedLlm(() => extractionJson([]));
-
-    const outcome = await extractTasks([first, second], deps(llm));
-
-    for (const id of ["dup-1", "dup-2"]) {
-      const verdict = outcome.verdicts.get(id);
-      expect(verdict?.kind).toBe("broadcast");
-      expect(verdict?.signals).toContain("body-hash");
-    }
-  });
-
-  it("同一天但正文不同 → 不触发 body-hash", async () => {
-    const first = makeEmail({
-      id: "diff-1",
-      threadId: "thread-diff-1",
-      fromEmail: "notice@corp.cn",
-      bodyText: "维护通知甲。",
-      sentAt: "2026-11-04T09:00:00+08:00",
-    });
-    const second = makeEmail({
-      id: "diff-2",
-      threadId: "thread-diff-2",
-      fromEmail: "notice@corp.cn",
-      bodyText: "维护通知乙。",
-      sentAt: "2026-11-04T15:00:00+08:00",
-    });
-    const llm = new ScriptedLlm(() => extractionJson([]));
-
-    const outcome = await extractTasks([first, second], deps(llm));
-
-    for (const id of ["diff-1", "diff-2"]) {
-      const verdict = outcome.verdicts.get(id);
-      expect(verdict?.kind).toBe("personal");
-      expect(verdict?.signals).not.toContain("body-hash");
-    }
-  });
-
-  it("正文相同但不在同一天 → 不触发 body-hash", async () => {
-    const first = makeEmail({
-      id: "day-1",
-      threadId: "thread-day-1",
-      fromEmail: "notice@corp.cn",
-      bodyText: SAME_BODY,
-      sentAt: "2026-11-04T09:00:00+08:00",
-    });
-    const second = makeEmail({
-      id: "day-2",
-      threadId: "thread-day-2",
-      fromEmail: "notice@corp.cn",
-      bodyText: SAME_BODY,
-      sentAt: "2026-11-05T09:00:00+08:00",
-    });
-    const llm = new ScriptedLlm(() => extractionJson([]));
-
-    const outcome = await extractTasks([first, second], deps(llm));
-
-    for (const id of ["day-1", "day-2"]) {
-      const verdict = outcome.verdicts.get(id);
-      expect(verdict?.kind).toBe("personal");
-      expect(verdict?.signals).not.toContain("body-hash");
-    }
-  });
-
-  it("单封 processEmail 看不到同日其它邮件，不产生 body-hash（已知边界）", async () => {
-    const email = makeEmail({ id: "single-dup", bodyText: SAME_BODY });
-    const llm = new ScriptedLlm(() => extractionJson([]));
-
-    const result = await processEmail(deps(llm), email);
-
-    expect(result.verdict.kind).toBe("personal");
-    expect(result.verdict.signals).not.toContain("body-hash");
+    expect(result.tasks[0]?.origin).toBe("personal");
   });
 });

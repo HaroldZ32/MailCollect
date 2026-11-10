@@ -83,6 +83,12 @@ jobs:
         working-directory: apps/desktop
         run: npx electron-builder --${{ matrix.target }} --publish never
 
+      # Linux：直接检查真正会随 AppImage 发布的 app.asar，证明打包后的 server
+      # 能启动、SQL 资产齐全、//api/* 不会落到 SPA 的 index.html。
+      - name: Check packaged artifact
+        if: matrix.target == 'linux'
+        run: node scripts/desktop-package-check.mjs --asar apps/desktop/release/linux-unpacked/resources/app.asar
+
       # GitHub 会把上传文件名里的空格换成点（MailCollect Setup.exe → MailCollect.Setup.exe），
       # 所以校验和里也必须写改名后的文件名，否则 sha256sum -c 对不上。
       - name: Checksums

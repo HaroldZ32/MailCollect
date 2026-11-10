@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,9 +94,46 @@ describe("http api", () => {
   it("serves health without a token", async () => {
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
     const body = (await res.json()) as { ok: boolean; hasProfile: boolean };
     expect(body.ok).toBe(true);
     expect(body.hasProfile).toBe(false);
+  });
+
+  it("never answers an API-looking path with index.html", async () => {
+    const uiDir = mkdtempSync(join(tmpdir(), "mailcollect-ui-"));
+    writeFileSync(join(uiDir, "index.html"), "<!doctype html><title>MailCollect</title>");
+    const withUi = createApp({
+      store,
+      services: { ...services, events },
+      token: TOKEN,
+      version: "test",
+      uiDir,
+    });
+    try {
+      const headers = { authorization: `Bearer ${TOKEN}` };
+
+      // A base with a trailing slash used to produce `//api/health`; the SPA
+      // fallback answered it with HTML, so the client could never parse it.
+      const doubleSlash = await withUi.request("//api/health", { headers });
+      expect(doubleSlash.status).toBe(404);
+      expect(doubleSlash.headers.get("content-type")).not.toContain("text/html");
+      const doubleSlashBody = (await doubleSlash.json()) as { error: { code: string } };
+      expect(doubleSlashBody.error.code).toBe("not_found");
+
+      const missing = await withUi.request("/api/definitely-missing", { headers });
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get("content-type")).not.toContain("text/html");
+      const missingBody = (await missing.json()) as { error: { code: string } };
+      expect(missingBody.error.code).toBe("not_found");
+
+      // The SPA fallback itself must keep serving real UI routes.
+      const route = await withUi.request("/tasks");
+      expect(route.status).toBe(200);
+      expect(await route.text()).toContain("MailCollect");
+    } finally {
+      rmSync(uiDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects every other route without a token", async () => {

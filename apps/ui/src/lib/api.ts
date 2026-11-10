@@ -121,7 +121,7 @@ function readStoredToken(): string | null {
 }
 
 export function resolveApiBase(): string {
-  return window.__MAILCOLLECT__?.apiBase ?? "";
+  return (window.__MAILCOLLECT__?.apiBase ?? "").replace(/\/+$/, "");
 }
 
 export function resolveToken(): string {

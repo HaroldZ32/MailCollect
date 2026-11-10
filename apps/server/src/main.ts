@@ -18,10 +18,11 @@ import { runDeviceLogin } from "./login-flow.js";
 import { createOutboxWorker } from "./routes/send.js";
 import { createEventBus, type ServerServices } from "./services.js";
 
-const VERSION = "0.1.0";
-
 const env = process.env;
 const isProduction = env["NODE_ENV"] === "production";
+
+/** 桌面端通过环境变量注入真实版本；单独运行服务端时回退到源码版本。 */
+const VERSION = env["MAILCOLLECT_VERSION"] ?? "0.1.0";
 
 const dataDir = env["MAILCOLLECT_DATA_DIR"] ?? join(process.cwd(), ".data");
 mkdirSync(dataDir, { recursive: true });

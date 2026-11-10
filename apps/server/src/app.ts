@@ -116,6 +116,9 @@ export function createApp(options: AppOptions): Hono {
     const uiDir = options.uiDir;
     app.get("*", async (c, next) => {
       const urlPath = c.req.path === "/" ? "/index.html" : c.req.path;
+      // 以 /api 开头或含双斜杠的路径只可能是客户端拼错了 base：回落 index.html
+      // 会让 `response.json()` 抛 SyntaxError，表现为「未连接」。交给 JSON 404。
+      if (urlPath.startsWith(`${API_PREFIX}/`) || urlPath.includes("//")) return next();
       const resolved = normalize(join(uiDir, urlPath));
       if (!resolved.startsWith(normalize(uiDir))) return next();
       try {

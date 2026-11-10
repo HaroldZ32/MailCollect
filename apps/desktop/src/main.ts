@@ -101,7 +101,7 @@ app.whenReady().then(async () => {
       createWindow(devUrl, devToken);
     } else {
       server = await startServer();
-      createWindow(`http://127.0.0.1:${server.port}/`, server.token);
+      createWindow(`http://127.0.0.1:${server.port}`, server.token);
     }
   } catch (error) {
     console.error("窗口创建失败:", error);
